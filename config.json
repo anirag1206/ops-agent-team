@@ -24,7 +24,10 @@
     "allowed_numbers": [],
     "port": 8000,
     "phone_number_id": "",
-    "verify_token": "choose-any-secret-word"
+    "verify_token": "choose-any-secret-word",
+    "_groups_help": "allowed_groups: part of the names of groups the team may read and reply in, e.g. [\"Production\"]. In those groups it only answers allowed numbers (and listed staff for done/update) whose message starts with group_trigger.",
+    "allowed_groups": [],
+    "group_trigger": "team"
   },
   "daily_briefing_time": "09:00",
   "_staff_help": "Staff messages: 'approve' = nothing is sent to staff until you reply 'send 3' / 'send all'. 'auto' = task messages go out straight away. Staff are listed in contacts.local.json.",

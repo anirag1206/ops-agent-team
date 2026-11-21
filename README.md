@@ -85,6 +85,12 @@ To send task messages without approving each one, put `"staff_messages": "auto"`
 
 **Use a separate WhatsApp number for the team.** If WhatsMCP is linked to your personal number, staff see the messages coming from you personally, and sending to many people from a personal number raises the chance that WhatsApp restricts it. A second SIM linked in WhatsMCP as "Lucent Leadership Team" avoids both, and you then command the team from your own phone like any other chat.
 
+## Part 2c: Only certain people, and replies in a group
+
+- The team reads **only** the chats of numbers in `allowed_numbers` (plus listed staff). It never downloads your other conversations.
+- To let it work in a group, add part of the group name to `allowed_groups`, e.g. `["Production"]`. It then reads only that group, and answers only when an allowed person starts a message with **team**, e.g. *"team, what is pending for packing today?"*. The answer goes to the group. Everything else in the group is ignored.
+- `python run.py whatsmcp-groups` shows the exact group names. (Listing groups reads only their names, not their messages.)
+
 ## Part 3: Knowledge base, Graphify and GitHub
 
 - **lucent-kb**: every agent automatically reads the company snapshot, `decisions.md`, its own `departments/*.md` brief and its `data/*.md` snapshots. The CEO, Chief of Staff and HR also read `people.md`. Which files each agent reads is listed in `team.json` (`kb_brief`, `kb_data`).

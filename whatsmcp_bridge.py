@@ -15,10 +15,12 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import threading
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import quote
 
 from whatsapp_bridge import _briefing_clock, handle_command
 
@@ -55,26 +57,27 @@ def serve(team, config):
     if team.staff:
         team.staff.send_fn = lambda phone, text: send(config, phone, text)
 
-    def work(sender, text):
+    def work(sender, text, reply_to=None):
         sender = sender.split("@")[0].lstrip("+")
+        dest = reply_to or sender  # in a group, answer in the group
         if team.staff and sender not in allowed:
             to_staff, to_owner = team.staff.staff_message(sender, text)
             if to_staff:
                 print(f"Staff message from {sender}: {text[:60]}")
-                send(config, sender, to_staff)
+                send(config, dest, to_staff)
                 for owner in allowed:
                     if to_owner:
                         send(config, owner, to_owner)
             return
         if allowed and sender not in allowed:
             return  # only answer the owner's numbers, never strangers
-        print(f"Command from {sender}: {text[:60]}")
+        print(f"Command from {sender}{' in group' if reply_to else ''}: {text[:60]}")
         with lock:
             try:
                 reply = handle_command(team, text)
             except Exception as e:
                 reply = f"Sorry, something went wrong: {e}"
-        send(config, sender, reply)
+        send(config, dest, reply)
 
     def briefing_sender(_cfg, number, text):
         send(config, number, text)
@@ -88,7 +91,17 @@ def serve(team, config):
         _webhook(wm, work, int(config["whatsapp"].get("port", 8000)))
     else:
         chats = list(allowed) + ([p["phone"] for p in team.staff.people] if team.staff else [])
-        _poll(wm, work, own, chats)
+        groups = set()
+        wanted = config["whatsapp"].get("allowed_groups") or []
+        if wanted:
+            for g in list_groups(wm.get("account_id")):
+                if any(w.lower() in str(g.get("name", "")).lower() for w in wanted):
+                    groups.add(g["chat"])
+                    print(f"Group: {g.get('name')} (team answers messages starting with "
+                          f"'{config['whatsapp'].get('group_trigger', 'team')}')")
+            if not groups:
+                print("None of allowed_groups matched a WhatsApp group name. Run: python run.py whatsmcp-groups")
+        _poll(wm, work, own, chats + sorted(groups), groups, config["whatsapp"].get("group_trigger", "team"))
 
 
 def _own_phone(account_id):
@@ -105,24 +118,31 @@ def _number(value):
     return "".join(ch for ch in str(value or "").split("@")[0] if ch.isdigit())
 
 
-def _pick(m, own):
-    """Return the number to answer, or None if this message is not a command for the team."""
-    text = m.get("text") or ""
+def _pick(m, own, groups=(), trigger="team"):
+    """Return (sender, reply_to, text) for a message the team should handle, else None."""
+    text = (m.get("text") or "").strip()
     if not text or text.startswith(MARK.strip()):
         return None  # empty, or one of the team's own replies
-    if "@g.us" in str(m.get("chat", "")) or "@g.us" in str(m.get("peer", "")) or "@newsletter" in str(m.get("chat", "")):
-        return None  # never act on group or channel messages
+    chat_raw = str(m.get("chat", ""))
     peer = _number(m.get("peer"))
-    chat = _number(m.get("chat"))
+    if "@g.us" in chat_raw or "@newsletter" in chat_raw:
+        if chat_raw not in groups:
+            return None  # never act on other groups or channels
+        # in an allowed group, only messages that start with the trigger word, e.g. "team, what is pending?"
+        mt = re.match(r"@?" + re.escape(trigger) + r"\b[\s,:.-]*(.*)", text, re.I | re.S)
+        if not mt or not mt.group(1).strip():
+            return None
+        return (own if (not peer and own) else peer), chat_raw, mt.group(1).strip()
+    chat = _number(chat_raw)
     if own and own in (peer, chat):
-        return own  # "message yourself" chat
+        return own, None, text  # "message yourself" chat
     if str(m.get("direction", "")).lower() in ("in", "inbound", "incoming"):
-        return peer
+        return peer, None, text
     return None
 
 
 # ---------------- free plan: polling ----------------
-def _poll(wm, work, own="", chats=None):
+def _poll(wm, work, own="", chats=None, groups=(), trigger="team"):
     """Asks WhatsMCP ONLY for the chats of the listed numbers (allowed numbers + staff),
     so other conversations are never downloaded."""
     here = os.path.dirname(os.path.abspath(__file__))
@@ -140,7 +160,7 @@ def _poll(wm, work, own="", chats=None):
         if chat not in cursors:  # first time: skip old messages in this chat, only answer new ones
             c = 0
             while True:
-                page = _call("GET", f"/messages?chat={chat}&after_cursor={c}&limit=200")
+                page = _call("GET", f"/messages?chat={quote(chat, safe='')}&after_cursor={c}&limit=200")
                 c = page.get("next_cursor") or c
                 if not page.get("has_more"):
                     break
@@ -156,7 +176,7 @@ def _poll(wm, work, own="", chats=None):
         for chat in chats:
             try:
                 while True:
-                    page = _call("GET", f"/messages?chat={chat}&after_cursor={cursors[chat]}&limit=50")
+                    page = _call("GET", f"/messages?chat={quote(chat, safe='')}&after_cursor={cursors[chat]}&limit=50")
                     for m in page.get("messages", []):
                         if os.environ.get("DEBUG_WAMCP"):
                             print("seen:", {k: m.get(k) for k in ("direction", "peer", "chat", "kind")},
@@ -164,9 +184,10 @@ def _poll(wm, work, own="", chats=None):
                         if m.get("message_id") in seen:
                             continue
                         seen.add(m.get("message_id"))
-                        who = _pick(m, own)
-                        if who:
-                            threading.Thread(target=work, args=(who, m["text"]), daemon=True).start()
+                        hit = _pick(m, own, groups, trigger)
+                        if hit:
+                            sender, reply_to, text = hit
+                            threading.Thread(target=work, args=(sender, text, reply_to), daemon=True).start()
                     cursors[chat] = page.get("next_cursor") or cursors[chat]
                     if not page.get("has_more"):
                         break
