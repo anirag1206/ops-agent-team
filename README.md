@@ -76,7 +76,7 @@ The PC must stay on for the team to answer. The morning briefing is sent at `dai
 
 ## Part 2b: Let the team message plant staff
 
-1. Copy `contacts.example.json` to `contacts.local.json` and list your people: name, `role` (the agent id from `team.json`, e.g. `eng`, `qa`, `coo`) and WhatsApp number (`91` + number). This file stays on your PC and never goes to GitHub.
+1. Quickest: `python run.py whatsmcp-groups` lists your WhatsApp groups, and `python run.py staff-from-group "Plant" coo` adds everyone who has written in that group to `contacts.local.json` (WhatsMCP shares no member list, so silent members are missed). Or copy `contacts.example.json` to `contacts.local.json` and list your people by hand: name, `role` (the agent id from `team.json`, e.g. `eng`, `qa`, `coo`) and WhatsApp number (`91` + number). This file stays on your PC and never goes to GitHub.
 2. When the CEO agent assigns an action item to a department that has a person listed, the team **drafts** a WhatsApp message to that person and shows it to you. **Nothing is sent until you reply** `send all`, `send 3` or `cancel 3`. Type `outbox` to read drafts in full.
 3. You can also write to someone through the team: `message Mehboob: please share today's press 4 status`. This is drafted the same way.
 4. Staff reply with `done 3`, `update 3: <news>` or `tasks`. Updates are saved to that department's memory and forwarded to you. Every other message from staff is ignored, so normal chats never get an automatic answer.

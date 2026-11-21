@@ -190,3 +190,49 @@ def _signature_ok(raw, header, secret):
         return hmac.compare_digest(expected, parts["v1"])
     except Exception:
         return False
+
+
+# ---------------- building the staff list from a WhatsApp group ----------------
+def list_groups(account_id):
+    chats = _call("GET", f"/accounts/{account_id}/chats?limit=200").get("chats", [])
+    return [c for c in chats if "@g.us" in str(c.get("chat", ""))]
+
+
+def group_senders(account_id, name_part, own_phone=""):
+    """Everyone who has written in the group (WhatsMCP has no member list, only messages)."""
+    from urllib.parse import quote
+    groups = [g for g in list_groups(account_id) if name_part.lower() in str(g.get("name", "")).lower()]
+    if not groups:
+        raise RuntimeError(f"No WhatsApp group with '{name_part}' in its name. Run: python run.py whatsmcp-groups")
+    g = groups[0]
+    jid = quote(g["chat"], safe="")
+    try:  # ask WhatsApp for older messages too, so more members show up
+        _call("POST", f"/accounts/{account_id}/chats/{jid}/history", {"count": 500})
+        time.sleep(5)
+    except Exception:
+        pass
+    msgs = _call("GET", f"/accounts/{account_id}/chats/{jid}?limit=200").get("messages", [])
+    people = {}
+    for m in msgs:
+        phone = _number(m.get("peer"))
+        if phone and phone != own_phone and len(phone) >= 10:
+            people.setdefault(phone, m.get("sender_name") or "")
+    return g.get("name", name_part), people
+
+
+def add_group_to_contacts(path, account_id, name_part, role="", own_phone=""):
+    gname, people = group_senders(account_id, name_part, own_phone)
+    data = {"people": []}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8-sig") as f:
+            data = json.load(f)
+        data["people"] = [p for p in data.get("people", []) if not str(p.get("phone", "")).startswith("910000000")]
+    known = {"".join(ch for ch in str(p.get("phone", "")) if ch.isdigit()) for p in data["people"]}
+    added = []
+    for phone, name in people.items():
+        if phone not in known:
+            data["people"].append({"name": name or phone, "role": role, "phone": phone})
+            added.append(f"{name or '?'} ({phone})")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    return gname, added

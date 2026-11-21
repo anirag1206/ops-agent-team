@@ -7,6 +7,8 @@
   python run.py team        -> show the org chart
   python run.py update-kb   -> pull the latest knowledge base from GitHub
   python run.py whatsmcp-accounts -> list your WhatsMCP numbers and their account_id
+  python run.py whatsmcp-groups   -> list your WhatsApp groups
+  python run.py staff-from-group "Group name" [role] -> add everyone who wrote in that group to contacts.local.json
 
 Add --show to see the full discussion between agents (who said what).
 """
@@ -83,6 +85,20 @@ def main():
             serve(team, config)
     elif mode == "update-kb":
         print(kb.update())
+    elif mode == "whatsmcp-groups":
+        import whatsmcp_bridge
+        for g in whatsmcp_bridge.list_groups(config["whatsmcp"]["account_id"]):
+            print(g.get("name") or g.get("chat"))
+    elif mode == "staff-from-group":
+        # python run.py staff-from-group "Group name" [role]
+        import whatsmcp_bridge
+        own = whatsmcp_bridge._own_phone(config["whatsmcp"]["account_id"])
+        gname, added = whatsmcp_bridge.add_group_to_contacts(
+            os.path.join(HERE, "contacts.local.json"), config["whatsmcp"]["account_id"],
+            args[1], args[2] if len(args) > 2 else "", own)
+        print(f"Group '{gname}': added {len(added)} people to contacts.local.json")
+        print("\n".join(added) or "(nobody new; only people who have written in the group can be found)")
+        print("Open contacts.local.json in Notepad, check names, and fill in each person's role.")
     elif mode == "whatsmcp-accounts":
         import whatsmcp_bridge
         print(json.dumps(whatsmcp_bridge._call("GET", "/accounts"), indent=2))
