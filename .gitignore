@@ -1,0 +1,9 @@
+# the team's own memory and runtime files (may hold company facts)
+team_memory.db
+whatsmcp_cursor.txt
+# keys and local settings
+.env
+*.key
+# python
+__pycache__/
+*.pyc

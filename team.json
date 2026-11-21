@@ -1,0 +1,360 @@
+{
+  "company": "Lucent Biotech Ltd (WHO-GMP contract manufacturer, Unit-II Roorkee, India)",
+  "_note": "Departments, briefs and data files match the lucent-kb knowledge base. 'reports_to' builds the org chart; guess_reporting=true means the reporting line is my guess. Edit freely.",
+  "owner": "Anirag Bansal",
+  "agents": [
+    {
+      "id": "ceo",
+      "title": "CEO",
+      "reports_to": null,
+      "focus": "Run the company system, roll up every department's KPIs, final decisions. Ask Anirag only for money, approvals, people, and messages to staff or outside parties.",
+      "kb_brief": "departments/ceo.md",
+      "kb_data": [
+        "data/kpi.md",
+        "data/order_book.md",
+        "data/dossier.md",
+        "data/daily_update.md"
+      ],
+      "keywords": [
+        "strategy",
+        "decide",
+        "decision",
+        "priority",
+        "vision",
+        "target"
+      ]
+    },
+    {
+      "id": "cos",
+      "title": "Chief of Staff",
+      "reports_to": "ceo",
+      "focus": "Assistant to the CEO: routing, chasers, meeting notes, follow-through, Marg data quality.",
+      "kb_brief": "departments/chief-of-staff.md",
+      "kb_data": [
+        "data/SOURCE.md",
+        "data/daily_update.md"
+      ],
+      "keywords": [
+        "follow up",
+        "status",
+        "meeting",
+        "agenda",
+        "deadline",
+        "pending",
+        "chase"
+      ]
+    },
+    {
+      "id": "cfo",
+      "title": "CFO",
+      "reports_to": "ceo",
+      "focus": "Costing, cash, receivables, payment and LC terms, purchase spend.",
+      "kb_brief": "departments/cfo.md",
+      "kb_data": [
+        "data/domestic_sales.md",
+        "data/rm_pm_purchase.md"
+      ],
+      "keywords": [
+        "cost",
+        "costing",
+        "price",
+        "budget",
+        "cash",
+        "payment",
+        "invoice",
+        "gst",
+        "tax",
+        "margin",
+        "profit",
+        "loan",
+        "bank",
+        "od",
+        "lc",
+        "receivable",
+        "receivables",
+        "expense"
+      ]
+    },
+    {
+      "id": "coo",
+      "title": "COO (Plant Head, Roorkee Unit-II)",
+      "reports_to": "ceo",
+      "focus": "Production planning and execution: S&OP, frozen schedule, yield, FG transfer.",
+      "kb_brief": "departments/coo.md",
+      "kb_data": [
+        "data/production_planning.md",
+        "data/yield.md",
+        "data/transfer.md",
+        "data/under_test.md",
+        "data/daily_update.md"
+      ],
+      "keywords": [
+        "production",
+        "batch",
+        "plant",
+        "capacity",
+        "output",
+        "schedule",
+        "yield",
+        "packing",
+        "plan",
+        "planning",
+        "transfer"
+      ]
+    },
+    {
+      "id": "qa",
+      "title": "QA/QC Head",
+      "reports_to": "coo",
+      "focus": "QC release, BMR/BPR, SOPs, OOS, deviations, CAPA, audits, complaints.",
+      "kb_brief": "departments/qa.md",
+      "kb_data": [
+        "data/under_test.md",
+        "data/yield.md",
+        "data/kpi.md"
+      ],
+      "keywords": [
+        "quality",
+        "qa",
+        "qc",
+        "deviation",
+        "capa",
+        "oos",
+        "bmr",
+        "bpr",
+        "stability",
+        "release",
+        "complaint",
+        "gmp",
+        "audit",
+        "sop"
+      ],
+      "guess_reporting": true
+    },
+    {
+      "id": "eng",
+      "title": "Engineering Head",
+      "reports_to": "coo",
+      "focus": "Machine ratings, uptime, change parts, tooling, utilities.",
+      "kb_brief": "departments/engineering.md",
+      "kb_data": [
+        "data/daily_update.md"
+      ],
+      "keywords": [
+        "machine",
+        "breakdown",
+        "maintenance",
+        "press",
+        "change part",
+        "tooling",
+        "utilities",
+        "uptime",
+        "engineering",
+        "blister"
+      ],
+      "guess_reporting": true
+    },
+    {
+      "id": "scm",
+      "title": "Supply Chain & Purchase Head",
+      "reports_to": "coo",
+      "focus": "RM, API, PM procurement, vendor lead times, safety stock, dispatch and export documents.",
+      "kb_brief": "departments/supply-chain.md",
+      "kb_data": [
+        "data/stock.md",
+        "data/rm_pm_purchase.md",
+        "data/order_book.md"
+      ],
+      "keywords": [
+        "raw material",
+        "rm",
+        "pm",
+        "api",
+        "vendor",
+        "supplier",
+        "purchase",
+        "stock",
+        "inventory",
+        "dispatch",
+        "logistics",
+        "po"
+      ],
+      "guess_reporting": true
+    },
+    {
+      "id": "fd",
+      "title": "F&D Head (Formulation & Development)",
+      "reports_to": "coo",
+      "focus": "New products, formula/BOM master, tech transfer, scale-up, stability, AMV data, feasibility.",
+      "kb_brief": "departments/fd.md",
+      "kb_data": [
+        "data/dossier.md"
+      ],
+      "keywords": [
+        "formula",
+        "formulation",
+        "bom",
+        "development",
+        "feasibility",
+        "tech transfer",
+        "scale-up",
+        "new product",
+        "amv",
+        "pilot"
+      ],
+      "guess_reporting": true
+    },
+    {
+      "id": "ra",
+      "title": "DRA Head (Regulatory Affairs)",
+      "reports_to": "ceo",
+      "focus": "Dossiers, CPP/COPP, API GMP apostilles, client regulatory queries.",
+      "kb_brief": "departments/regulatory.md",
+      "kb_data": [
+        "data/dossier.md"
+      ],
+      "keywords": [
+        "dossier",
+        "dossiers",
+        "registration",
+        "licence",
+        "license",
+        "cdsco",
+        "fda",
+        "who-gmp",
+        "ctd",
+        "regulatory",
+        "dra",
+        "copp",
+        "cpp",
+        "apostille"
+      ]
+    },
+    {
+      "id": "bd",
+      "title": "Business Development Head",
+      "reports_to": "ceo",
+      "focus": "Export and contract clients: quotes, POs, artwork sign-off.",
+      "kb_brief": "departments/business-development.md",
+      "kb_data": [
+        "data/order_book.md"
+      ],
+      "keywords": [
+        "customer",
+        "client",
+        "order",
+        "quotation",
+        "quote",
+        "rfq",
+        "tender",
+        "export",
+        "deal",
+        "lead",
+        "artwork"
+      ]
+    },
+    {
+      "id": "dom",
+      "title": "Domestic Sales Head (Trade Generics)",
+      "reports_to": "ceo",
+      "focus": "Lucent's own domestic brands, distributors, credit limits, MR performance.",
+      "kb_brief": "departments/domestic-sales.md",
+      "kb_data": [
+        "data/domestic_sales.md"
+      ],
+      "keywords": [
+        "domestic",
+        "distributor",
+        "mr",
+        "brand",
+        "credit",
+        "trade generics"
+      ]
+    },
+    {
+      "id": "hr",
+      "title": "HR Head",
+      "reports_to": "ceo",
+      "focus": "Hiring, retention, training matrix, F&F, shifts, staffing for target volume.",
+      "kb_brief": "departments/hr.md",
+      "kb_data": [],
+      "keywords": [
+        "hire",
+        "hiring",
+        "staff",
+        "employee",
+        "salary",
+        "payroll",
+        "attendance",
+        "training",
+        "leave",
+        "recruit",
+        "manpower",
+        "shift",
+        "attrition"
+      ]
+    }
+  ],
+  "handoffs": [
+    [
+      "bd",
+      "cfo",
+      "RFQ for costing"
+    ],
+    [
+      "bd",
+      "fd",
+      "feasibility request"
+    ],
+    [
+      "bd",
+      "coo",
+      "confirmed demand and 3-month forecast"
+    ],
+    [
+      "dom",
+      "coo",
+      "brand forecast and POs"
+    ],
+    [
+      "fd",
+      "scm",
+      "formula, batch size, BOM"
+    ],
+    [
+      "fd",
+      "coo",
+      "tech transfer"
+    ],
+    [
+      "fd",
+      "ra",
+      "development, stability, AMV data"
+    ],
+    [
+      "scm",
+      "qa",
+      "GRN for release"
+    ],
+    [
+      "coo",
+      "scm",
+      "FG plan for dispatch"
+    ],
+    [
+      "eng",
+      "coo",
+      "ratings, changeover, change-part readiness"
+    ],
+    [
+      "qa",
+      "coo",
+      "RM/PM and FG release plan"
+    ],
+    [
+      "ra",
+      "bd",
+      "artwork and registration status"
+    ]
+  ]
+}
