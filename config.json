@@ -1,27 +1,24 @@
 {
-  "_help": "brain can be 'ollama' (free, runs on your PC), 'claude' (paid, smarter, needs an API key) or 'demo' (no AI at all, just to test the wiring).",
+  "_help": "brain can be 'ollama' (free, runs on your PC), 'online' (Groq or Gemini, free tiers, needs a key), 'claude' (paid, smarter, needs a key) or 'demo' (no AI, just to test the wiring).",
   "brain": "ollama",
-
   "ollama_url": "http://localhost:11434",
   "ollama_model": "qwen2.5:7b",
   "ollama_context": 8192,
-
   "_kb_help": "Folder where your lucent-kb repository is cloned. Relative paths are from this folder.",
   "knowledge_base": "../lucent-kb",
-
+  "_online_help": "For brain 'online'. Groq: url https://api.groq.com/openai/v1, model llama-3.3-70b-versatile. Gemini: url https://generativelanguage.googleapis.com/v1beta/openai, model gemini-2.5-flash. Key in env ONLINE_AI_KEY.",
+  "online_url": "https://api.groq.com/openai/v1",
+  "online_model": "llama-3.3-70b-versatile",
   "claude_model": "claude-sonnet-5-5",
   "_claude_key_help": "Do NOT paste the key here. Set it as a Windows environment variable called ANTHROPIC_API_KEY.",
-
   "_whatsapp_provider_help": "'whatsmcp' = the WhatsMCP service you already use (default). 'meta' = Meta's official Cloud API directly.",
   "whatsapp_provider": "whatsmcp",
-
   "whatsmcp": {
     "_help": "API key goes in the environment variable WAMCP_KEY. account_id is shown in your WhatsMCP dashboard (or run: python run.py whatsmcp-accounts).",
     "account_id": "",
     "receive": "poll",
     "poll_seconds": 900
   },
-
   "whatsapp": {
     "_help": "allowed_numbers: ONLY these numbers can command the team, e.g. [\"919812345678\"]. Leave the rest empty unless you use provider 'meta'. Meta token goes in WHATSAPP_TOKEN.",
     "allowed_numbers": [],
@@ -29,6 +26,5 @@
     "phone_number_id": "",
     "verify_token": "choose-any-secret-word"
   },
-
   "daily_briefing_time": "09:00"
 }

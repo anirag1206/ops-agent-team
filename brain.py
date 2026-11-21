@@ -3,6 +3,8 @@
 Three options, chosen in config.json:
   ollama -> free, runs on your own PC (default)
   claude -> paid per use, smarter, needs ANTHROPIC_API_KEY
+  online -> any OpenAI-style service, e.g. Groq or Google Gemini (both have free tiers),
+            needs ONLINE_AI_KEY. Use this when the PC is too small for local models.
   demo   -> no AI, canned answers, only for testing the wiring
 """
 import json
@@ -21,6 +23,8 @@ class Brain:
             return self._ollama(system, prompt)
         if self.kind == "claude":
             return self._claude(system, prompt, max_tokens)
+        if self.kind == "online":
+            return self._online(system, prompt, max_tokens)
         return self._demo(system, prompt)
 
     # ---- free, local -------------------------------------------------
@@ -72,6 +76,21 @@ class Brain:
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
         data = _post_json("https://api.anthropic.com/v1/messages", body, headers, timeout=120)
         return "".join(b.get("text", "") for b in data["content"]).strip()
+
+    # ---- hosted, OpenAI-style API (Groq, Gemini, OpenRouter...): some have free tiers ----
+    def _online(self, system, prompt, max_tokens):
+        key = os.environ.get("ONLINE_AI_KEY")
+        if not key:
+            raise RuntimeError("Set the ONLINE_AI_KEY environment variable to your Groq / Gemini / OpenRouter key.")
+        base = self.config.get("online_url", "https://api.groq.com/openai/v1").rstrip("/")
+        body = {
+            "model": self.config.get("online_model", "llama-3.3-70b-versatile"),
+            "max_tokens": max_tokens,
+            "temperature": 0.3,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        }
+        data = _post_json(base + "/chat/completions", body, {"Authorization": f"Bearer {key}"}, timeout=120)
+        return data["choices"][0]["message"]["content"].strip()
 
     # ---- offline test mode -------------------------------------------
     def _demo(self, system, prompt):
