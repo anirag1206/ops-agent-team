@@ -49,7 +49,7 @@ def handle_command(team, text):
                 "- done 3 : mark action item 3 as done\n"
                 "- remember: <fact> : teach the team something permanent\n"
                 "- briefing : get the morning briefing now")
-    if low == "team":
+    if low == "team" or "org chart" in low or "organisation chart" in low or "organization chart" in low:
         return team.org_chart()
     if low == "tasks":
         rows = team.memory.open_tasks()

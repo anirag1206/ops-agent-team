@@ -7,6 +7,7 @@ Three options, chosen in config.json:
 """
 import json
 import os
+import urllib.error
 import urllib.request
 
 
@@ -25,23 +26,37 @@ class Brain:
     # ---- free, local -------------------------------------------------
     def _ollama(self, system, prompt):
         url = self.config.get("ollama_url", "http://localhost:11434") + "/api/chat"
-        body = {
-            "model": self.config.get("ollama_model", "qwen2.5:7b"),
-            "stream": False,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            "options": {"temperature": 0.3, "num_ctx": int(self.config.get("ollama_context", 16384))},
-        }
-        try:
-            data = _post_json(url, body, {}, timeout=600)
-        except Exception as e:
-            raise RuntimeError(
-                "Could not reach Ollama. Is the Ollama app running, and did you run "
-                f"'ollama pull {body['model']}'? Details: {e}"
-            )
-        return data["message"]["content"].strip()
+        model = self.config.get("ollama_model", "qwen2.5:7b")
+        ctx = int(self.config.get("ollama_context", 8192))
+        last = None
+        # If the PC runs short of memory Ollama answers "500"; retry with a smaller memory window.
+        for size in sorted({ctx, min(ctx, 4096), 2048}, reverse=True):
+            body = {
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                "options": {"temperature": 0.3, "num_ctx": size},
+            }
+            try:
+                data = _post_json(url, body, {}, timeout=900)
+                if size != ctx:
+                    self.config["ollama_context"] = size  # remember what works on this PC
+                return data["message"]["content"].strip()
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode("utf-8", "replace")[:300]
+                last = f"Ollama error {e.code}: {detail}"
+                if "not found" in detail.lower():
+                    break
+            except Exception as e:
+                last = str(e)
+                break
+        raise RuntimeError(
+            f"Ollama could not answer. Check the Ollama app is running and run 'ollama pull {model}'. "
+            f"Details: {last}"
+        )
 
     # ---- paid, hosted ------------------------------------------------
     def _claude(self, system, prompt, max_tokens):

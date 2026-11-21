@@ -78,7 +78,10 @@ def main():
                 break
             if text:
                 print("\n(The team is discussing, this can take a minute on a normal PC...)\n")
-                out(handle_command(team, text))
+                try:
+                    out(handle_command(team, text))
+                except Exception as e:
+                    print(f"Sorry, that failed: {e}")
                 print()
 
 

@@ -44,7 +44,7 @@ Start-Sleep -Seconds 5
 & $ollamaExe pull $Model
 
 # 4. Download the team (public) and the knowledge base (private, GitHub will ask you to sign in)
-if (Test-Path "$Team\.git") { Say "Updating the team code ..."; git -C $Team pull --ff-only }
+if (Test-Path "$Team\.git") { Say "Updating the team code ..."; git -C $Team checkout -- config.json; git -C $Team pull --ff-only }
 else { Say "Downloading the team code ..."; git clone https://github.com/anirag1206/ops-agent-team $Team }
 
 if (Test-Path "$KB\.git") { Say "Updating the knowledge base ..."; git -C $KB pull --ff-only }

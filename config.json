@@ -4,7 +4,7 @@
 
   "ollama_url": "http://localhost:11434",
   "ollama_model": "qwen2.5:7b",
-  "ollama_context": 16384,
+  "ollama_context": 8192,
 
   "_kb_help": "Folder where your lucent-kb repository is cloned. Relative paths are from this folder.",
   "knowledge_base": "../lucent-kb",
