@@ -74,6 +74,17 @@ To get the newest snapshots after your other bots refresh lucent-kb, run `python
 
 The PC must stay on for the team to answer. The morning briefing is sent at `daily_briefing_time` (default 09:00).
 
+## Part 2b: Let the team message plant staff
+
+1. Copy `contacts.example.json` to `contacts.local.json` and list your people: name, `role` (the agent id from `team.json`, e.g. `eng`, `qa`, `coo`) and WhatsApp number (`91` + number). This file stays on your PC and never goes to GitHub.
+2. When the CEO agent assigns an action item to a department that has a person listed, the team **drafts** a WhatsApp message to that person and shows it to you. **Nothing is sent until you reply** `send all`, `send 3` or `cancel 3`. Type `outbox` to read drafts in full.
+3. You can also write to someone through the team: `message Mehboob: please share today's press 4 status`. This is drafted the same way.
+4. Staff reply with `done 3`, `update 3: <news>` or `tasks`. Updates are saved to that department's memory and forwarded to you. Every other message from staff is ignored, so normal chats never get an automatic answer.
+
+To send task messages without approving each one, put `"staff_messages": "auto"` in `config.local.json`.
+
+**Use a separate WhatsApp number for the team.** If WhatsMCP is linked to your personal number, staff see the messages coming from you personally, and sending to many people from a personal number raises the chance that WhatsApp restricts it. A second SIM linked in WhatsMCP as "Lucent Leadership Team" avoids both, and you then command the team from your own phone like any other chat.
+
 ## Part 3: Knowledge base, Graphify and GitHub
 
 - **lucent-kb**: every agent automatically reads the company snapshot, `decisions.md`, its own `departments/*.md` brief and its `data/*.md` snapshots. The CEO, Chief of Staff and HR also read `people.md`. Which files each agent reads is listed in `team.json` (`kb_brief`, `kb_data`).
@@ -110,6 +121,8 @@ Set the environment variable `ANTHROPIC_API_KEY`, then change `"brain": "ollama"
 | `memory.py` | the team's own memory, facts and action items |
 | `tools.py` | Graphify, knowledge base and GitHub lookups |
 | `whatsmcp_bridge.py` | WhatsApp through WhatsMCP (default) |
+| `staff.py` | drafts, approvals and replies for messages to plant staff |
+| `contacts.example.json` | template for your private staff list |
 | `whatsapp_bridge.py` | commands, morning briefing, and Meta's direct API (alternative) |
 | `run.py` | starts everything |
 

@@ -50,6 +50,15 @@ def main():
     team = Team(os.path.join(HERE, "team.json"), Brain(config),
                 Memory(os.path.join(HERE, "team_memory.db")), kb)
 
+    contacts = os.path.join(HERE, "contacts.local.json")
+    if os.path.exists(contacts):
+        from staff import Staff
+        team.staff = Staff(contacts, team.memory, team.agents,
+                           config["whatsapp"].get("allowed_numbers") or [], config.get("staff_messages", "approve"))
+        if config.get("whatsapp_provider", "whatsmcp") == "whatsmcp" and os.environ.get("WAMCP_KEY"):
+            import whatsmcp_bridge
+            team.staff.send_fn = lambda phone, text: whatsmcp_bridge.send(config, phone, text)
+
     mode = args[0] if args else "chat"
 
     def out(text):

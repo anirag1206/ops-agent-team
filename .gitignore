@@ -8,3 +8,4 @@ whatsmcp_cursor.txt
 __pycache__/
 *.pyc
 config.local.json
+contacts.local.json

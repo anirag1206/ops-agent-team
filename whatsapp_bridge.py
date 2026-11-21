@@ -48,7 +48,14 @@ def handle_command(team, text):
                 "- tasks : see open action items\n"
                 "- done 3 : mark action item 3 as done\n"
                 "- remember: <fact> : teach the team something permanent\n"
-                "- briefing : get the morning briefing now")
+                "- briefing : get the morning briefing now\n"
+                "- staff : list plant staff the team can message\n"
+                "- message Mehboob: <text> : draft a message to a staff member\n"
+                "- outbox / send all / send 3 / cancel 3 : approve messages to staff")
+    if team.staff:
+        reply = team.staff.owner_command(low, t)
+        if reply is not None:
+            return reply
     if low == "team" or "org chart" in low or "organisation chart" in low or "organization chart" in low:
         return team.org_chart()
     if low == "tasks":
@@ -63,8 +70,15 @@ def handle_command(team, text):
         team.memory.add_fact(fact)
         return f"Saved. The whole team will remember: {fact}"
     if low == "briefing":
-        return team.daily_briefing()
-    return team.handle(t)
+        return _with_outbox(team, team.daily_briefing())
+    return _with_outbox(team, team.handle(t))
+
+
+def _with_outbox(team, reply):
+    if not team.staff:
+        return reply
+    extra = team.staff.auto_send_if_allowed() or team.staff.pending_text()
+    return reply + ("\n\n" + extra if extra else "")
 
 
 def serve(team, config):

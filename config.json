@@ -26,5 +26,7 @@
     "phone_number_id": "",
     "verify_token": "choose-any-secret-word"
   },
-  "daily_briefing_time": "09:00"
+  "daily_briefing_time": "09:00",
+  "_staff_help": "Staff messages: 'approve' = nothing is sent to staff until you reply 'send 3' / 'send all'. 'auto' = task messages go out straight away. Staff are listed in contacts.local.json.",
+  "staff_messages": "approve"
 }

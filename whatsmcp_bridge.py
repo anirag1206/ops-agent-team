@@ -52,8 +52,20 @@ def serve(team, config):
     allowed = {n.lstrip("+") for n in (config["whatsapp"].get("allowed_numbers") or [])}
     lock = threading.Lock()
 
+    if team.staff:
+        team.staff.send_fn = lambda phone, text: send(config, phone, text)
+
     def work(sender, text):
         sender = sender.split("@")[0].lstrip("+")
+        if team.staff and sender not in allowed:
+            to_staff, to_owner = team.staff.staff_message(sender, text)
+            if to_staff:
+                print(f"Staff message from {sender}: {text[:60]}")
+                send(config, sender, to_staff)
+                for owner in allowed:
+                    if to_owner:
+                        send(config, owner, to_owner)
+            return
         if allowed and sender not in allowed:
             return  # only answer the owner's numbers, never strangers
         print(f"Command from {sender}: {text[:60]}")
