@@ -27,7 +27,7 @@ from whatsapp_bridge import handle_command, serve  # noqa: E402
 def main():
     args = [a for a in sys.argv[1:] if a != "--show"]
     show = "--show" in sys.argv
-    with open(os.path.join(HERE, "config.json"), encoding="utf-8") as f:
+    with open(os.path.join(HERE, "config.json"), encoding="utf-8-sig") as f:
         config = json.load(f)
     if os.environ.get("BRAIN"):
         config["brain"] = os.environ["BRAIN"]

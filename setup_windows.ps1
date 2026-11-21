@@ -60,8 +60,9 @@ python -m pip install --quiet --upgrade graphifyy
 # 6. Use the model we chose
 $cfgPath = "$Team\config.json"
 if (Test-Path $cfgPath) {
-    (Get-Content $cfgPath -Raw) -replace '"ollama_model":\s*"[^"]*"', "`"ollama_model`": `"$Model`"" |
-        Set-Content $cfgPath -Encoding UTF8
+    $text = (Get-Content $cfgPath -Raw) -replace '"ollama_model":\s*"[^"]*"', "`"ollama_model`": `"$Model`""
+    # write without a BOM (Windows PowerShell's "UTF8" adds one, which Python rejects)
+    [System.IO.File]::WriteAllText($cfgPath, $text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 # 7. Desktop icon

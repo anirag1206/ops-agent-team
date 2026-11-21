@@ -17,7 +17,7 @@ from tools import TOOL_HELP, run_tool
 
 class Team:
     def __init__(self, team_file, brain, memory, kb=None):
-        with open(team_file, encoding="utf-8") as f:
+        with open(team_file, encoding="utf-8-sig") as f:
             data = json.load(f)
         self.company = data.get("company", "our company")
         self.owner = data.get("owner", "the owner")
