@@ -56,6 +56,7 @@ def serve(team, config):
         sender = sender.split("@")[0].lstrip("+")
         if allowed and sender not in allowed:
             return  # only answer the owner's numbers, never strangers
+        print(f"Command from {sender}: {text[:60]}")
         with lock:
             try:
                 reply = handle_command(team, text)
@@ -96,6 +97,8 @@ def _pick(m, own):
     text = m.get("text") or ""
     if not text or text.startswith(MARK.strip()):
         return None  # empty, or one of the team's own replies
+    if "@g.us" in str(m.get("chat", "")) or "@g.us" in str(m.get("peer", "")) or "@newsletter" in str(m.get("chat", "")):
+        return None  # never act on group or channel messages
     peer = _number(m.get("peer"))
     chat = _number(m.get("chat"))
     if own and own in (peer, chat):
@@ -133,7 +136,6 @@ def _poll(wm, work, own=""):
                 seen.add(m.get("message_id"))
                 who = _pick(m, own)
                 if who:
-                    print(f"Message from {who}: {m['text'][:60]}")
                     threading.Thread(target=work, args=(who, m["text"]), daemon=True).start()
             cursor = page.get("next_cursor") or cursor
             open(cursor_file, "w").write(str(cursor))
