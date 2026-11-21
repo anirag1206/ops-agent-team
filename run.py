@@ -29,6 +29,16 @@ def main():
     show = "--show" in sys.argv
     with open(os.path.join(HERE, "config.json"), encoding="utf-8-sig") as f:
         config = json.load(f)
+    # Your own settings go in config.local.json (never overwritten by updates)
+    local = os.path.join(HERE, "config.local.json")
+    if os.path.exists(local):
+        with open(local, encoding="utf-8-sig") as f:
+            mine = json.load(f)
+        for k, v in mine.items():
+            if isinstance(v, dict) and isinstance(config.get(k), dict):
+                config[k].update(v)
+            else:
+                config[k] = v
     if os.environ.get("BRAIN"):
         config["brain"] = os.environ["BRAIN"]
     kb_path = config.get("knowledge_base", "")

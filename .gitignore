@@ -7,3 +7,4 @@ whatsmcp_cursor.txt
 # python
 __pycache__/
 *.pyc
+config.local.json

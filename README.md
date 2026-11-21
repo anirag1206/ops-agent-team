@@ -86,6 +86,8 @@ Set the environment variable `ANTHROPIC_API_KEY`, then change `"brain": "ollama"
 
 ## Customise
 
+- **Your own settings** (which brain, model, WhatsMCP account, allowed numbers) go in `config.local.json` next to `config.json`. Only write the lines you change, for example `{"brain": "claude", "whatsapp": {"allowed_numbers": ["919812345678"]}}`. Updates never overwrite this file.
+
 - **Change a role or reporting line:** edit `team.json`. Each block has an `id`, a `title`, who it `reports_to`, its `focus`, the knowledge base files it reads, and `keywords` the Chief of Staff uses for routing. `handoffs` lists who sends what to whom (copied from `kb_model.py`).
 - **Memory:** the team's own memory (facts you teach it, action items, discussion log) is in `team_memory.db`. Delete it to start fresh. It never writes to lucent-kb.
 
