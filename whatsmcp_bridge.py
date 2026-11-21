@@ -83,11 +83,12 @@ def serve(team, config):
 
     own = _own_phone(wm.get("account_id"))
     if own:
-        print(f"Linked WhatsApp number: {own}. You can also command the team by messaging yourself.")
+        print(f"Linked WhatsApp number: {own}.")
     if wm.get("receive", "poll") == "webhook":
         _webhook(wm, work, int(config["whatsapp"].get("port", 8000)))
     else:
-        _poll(wm, work, own)
+        chats = list(allowed) + ([p["phone"] for p in team.staff.people] if team.staff else [])
+        _poll(wm, work, own, chats)
 
 
 def _own_phone(account_id):
@@ -121,40 +122,58 @@ def _pick(m, own):
 
 
 # ---------------- free plan: polling ----------------
-def _poll(wm, work, own=""):
+def _poll(wm, work, own="", chats=None):
+    """Asks WhatsMCP ONLY for the chats of the listed numbers (allowed numbers + staff),
+    so other conversations are never downloaded."""
     here = os.path.dirname(os.path.abspath(__file__))
-    cursor_file = os.path.join(here, "whatsmcp_cursor.txt")
+    cursor_file = os.path.join(here, "whatsmcp_cursors.json")
     every = int(wm.get("poll_seconds", 900))
+    chats = sorted({c for c in (chats or []) if c})
+    if not chats:
+        print("No allowed numbers set in config, so nothing will be read. Add allowed_numbers and restart.")
+        return
+    cursors = {}
     if os.path.exists(cursor_file):
-        cursor = int(open(cursor_file).read().strip() or 0)
-    else:  # first start: skip old messages, only answer new ones
-        cursor = 0
-        while True:
-            page = _call("GET", f"/messages?after_cursor={cursor}&limit=200")
-            cursor = page.get("next_cursor") or cursor
-            if not page.get("has_more"):
-                break
-        open(cursor_file, "w").write(str(cursor))
+        with open(cursor_file) as f:
+            cursors = json.load(f)
+    for chat in chats:
+        if chat not in cursors:  # first time: skip old messages in this chat, only answer new ones
+            c = 0
+            while True:
+                page = _call("GET", f"/messages?chat={chat}&after_cursor={c}&limit=200")
+                c = page.get("next_cursor") or c
+                if not page.get("has_more"):
+                    break
+            cursors[chat] = c
+    with open(cursor_file, "w") as f:
+        json.dump(cursors, f)
     seen = set()
-    print(f"Checking WhatsMCP for new messages every {every} seconds (Ctrl+C to stop)")
+    calls_per_day = len(chats) * 86400 // max(every, 1)
+    print(f"Reading only these chats: {', '.join(chats)}")
+    print(f"Checking WhatsMCP for new messages every {every} seconds (about {calls_per_day} checks a day; "
+          "the free plan allows 100) - Ctrl+C to stop")
     while True:
-        try:
-            page = _call("GET", f"/messages?after_cursor={cursor}&limit=50")
-            for m in page.get("messages", []):
-                if os.environ.get("DEBUG_WAMCP"):
-                    print("seen:", {k: m.get(k) for k in ("direction", "peer", "chat", "kind")}, (m.get("text") or "")[:40])
-                if m.get("message_id") in seen:
-                    continue
-                seen.add(m.get("message_id"))
-                who = _pick(m, own)
-                if who:
-                    threading.Thread(target=work, args=(who, m["text"]), daemon=True).start()
-            cursor = page.get("next_cursor") or cursor
-            open(cursor_file, "w").write(str(cursor))
-            if page.get("has_more"):
-                continue
-        except Exception as e:
-            print("WhatsMCP check failed:", e)
+        for chat in chats:
+            try:
+                while True:
+                    page = _call("GET", f"/messages?chat={chat}&after_cursor={cursors[chat]}&limit=50")
+                    for m in page.get("messages", []):
+                        if os.environ.get("DEBUG_WAMCP"):
+                            print("seen:", {k: m.get(k) for k in ("direction", "peer", "chat", "kind")},
+                                  (m.get("text") or "")[:40])
+                        if m.get("message_id") in seen:
+                            continue
+                        seen.add(m.get("message_id"))
+                        who = _pick(m, own)
+                        if who:
+                            threading.Thread(target=work, args=(who, m["text"]), daemon=True).start()
+                    cursors[chat] = page.get("next_cursor") or cursors[chat]
+                    if not page.get("has_more"):
+                        break
+                with open(cursor_file, "w") as f:
+                    json.dump(cursors, f)
+            except Exception as e:
+                print(f"WhatsMCP check for {chat} failed:", e)
         time.sleep(every)
 
 
