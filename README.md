@@ -91,6 +91,15 @@ To send task messages without approving each one, put `"staff_messages": "auto"`
 - To let it work in a group, add part of the group name to `allowed_groups`, e.g. `["Production"]`. It then reads only that group, and answers only when an allowed person starts a message with **team**, e.g. *"team, what is pending for packing today?"*. The answer goes to the group. Everything else in the group is ignored.
 - `python run.py whatsmcp-groups` shows the exact group names. (Listing groups reads only their names, not their messages.)
 
+## Part 2d: Cheap middleman in front of an expensive CEO bot (Grok)
+
+`python run.py middleman` watches WhatsApp every few seconds **without any AI**, drops what needs no CEO ("ok", 👍, "thanks", stickers, people and groups not on your lists), groups quick messages from one person into one question, and only then calls the CEO AI once. The reply is posted back in the same chat or group. The CEO AI can answer `NO_REPLY` when nothing needs saying.
+
+- **CEO AI:** Grok through the xAI API by default (`middleman` block in `config.json`). Save your key as `setx XAI_API_KEY "xai-..."`. Check console.x.ai for the cheapest current Grok model name and put it in `online_model`. Claude works too: set `"brain": "claude"` in the middleman block.
+- **Caps:** `max_ai_calls_per_hour` and `max_ai_calls_per_day` stop spending; you get one WhatsApp note when the cap is hit.
+- **How often it checks:** `poll_seconds` (default 30). Each allowed person or group is one check, so 3 chats every 30 s is about 8,600 WhatsMCP calls a day. That needs the WhatsMCP **Pro** plan (unlimited API calls). Cheaper alternative: **Starter** plan with `"receive": "webhook"`, where WhatsMCP pushes messages instantly and nothing polls (needs a tunnel, see Part 2).
+- Turn off your other bot's own WhatsApp checking, otherwise you pay twice.
+
 ## Part 3: Knowledge base, Graphify and GitHub
 
 - **lucent-kb**: every agent automatically reads the company snapshot, `decisions.md`, its own `departments/*.md` brief and its `data/*.md` snapshots. The CEO, Chief of Staff and HR also read `people.md`. Which files each agent reads is listed in `team.json` (`kb_brief`, `kb_data`).
@@ -127,6 +136,7 @@ Set the environment variable `ANTHROPIC_API_KEY`, then change `"brain": "ollama"
 | `memory.py` | the team's own memory, facts and action items |
 | `tools.py` | Graphify, knowledge base and GitHub lookups |
 | `whatsmcp_bridge.py` | WhatsApp through WhatsMCP (default) |
+| `middleman.py` | free WhatsApp filter that calls the CEO AI (Grok) only when needed |
 | `staff.py` | drafts, approvals and replies for messages to plant staff |
 | `contacts.example.json` | template for your private staff list |
 | `whatsapp_bridge.py` | commands, morning briefing, and Meta's direct API (alternative) |

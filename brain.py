@@ -79,9 +79,10 @@ class Brain:
 
     # ---- hosted, OpenAI-style API (Groq, Gemini, OpenRouter...): some have free tiers ----
     def _online(self, system, prompt, max_tokens):
-        key = os.environ.get("ONLINE_AI_KEY")
+        env = self.config.get("online_key_env", "ONLINE_AI_KEY")
+        key = os.environ.get(env)
         if not key:
-            raise RuntimeError("Set the ONLINE_AI_KEY environment variable to your Groq / Gemini / OpenRouter key.")
+            raise RuntimeError(f"Set the {env} environment variable to your AI service key.")
         base = self.config.get("online_url", "https://api.groq.com/openai/v1").rstrip("/")
         body = {
             "model": self.config.get("online_model", "llama-3.3-70b-versatile"),

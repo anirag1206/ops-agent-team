@@ -31,5 +31,20 @@
   },
   "daily_briefing_time": "09:00",
   "_staff_help": "Staff messages: 'approve' = nothing is sent to staff until you reply 'send 3' / 'send all'. 'auto' = task messages go out straight away. Staff are listed in contacts.local.json.",
-  "staff_messages": "approve"
+  "staff_messages": "approve",
+  "_middleman_help": "For 'python run.py middleman': a free filter that watches WhatsApp and only calls the CEO AI (Grok via xAI) when a message needs it. brain 'online' + online_url https://api.x.ai/v1 = Grok; key in env XAI_API_KEY. Check console.x.ai for the cheapest current Grok model name. poll_seconds below 300 needs the WhatsMCP Pro plan (or use receive: webhook on Starter).",
+  "middleman": {
+    "brain": "online",
+    "online_url": "https://api.x.ai/v1",
+    "online_model": "grok-4-fast",
+    "online_key_env": "XAI_API_KEY",
+    "poll_seconds": 30,
+    "batch_seconds": 45,
+    "max_ai_calls_per_hour": 20,
+    "max_ai_calls_per_day": 150,
+    "max_reply_tokens": 400,
+    "history_messages": 10,
+    "group_everyone": false,
+    "full_ceo_notes": false
+  }
 }

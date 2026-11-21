@@ -4,6 +4,7 @@
   python run.py ask "..."   -> one question, then exit
   python run.py briefing    -> morning briefing now
   python run.py whatsapp    -> start the WhatsApp connection + daily briefing
+  python run.py middleman   -> cheap filter: watch WhatsApp, call the CEO AI (Grok) only when needed
   python run.py team        -> show the org chart
   python run.py update-kb   -> pull the latest knowledge base from GitHub
   python run.py whatsmcp-accounts -> list your WhatsMCP numbers and their account_id
@@ -85,6 +86,9 @@ def main():
             serve(team, config)
     elif mode == "update-kb":
         print(kb.update())
+    elif mode == "middleman":
+        from middleman import Middleman
+        Middleman(config, team).run()
     elif mode == "whatsmcp-groups":
         import whatsmcp_bridge
         for g in whatsmcp_bridge.list_groups(config["whatsmcp"]["account_id"]):
