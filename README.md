@@ -23,7 +23,12 @@ These are the same 12 departments as `lucent-kb/departments/`. The team follows 
 
 ---
 
-## Part 1: Get it running on Windows (about 20 minutes)
+## Part 1: Get it running on Windows
+
+**Easiest way (one click):** download [SETUP.bat](https://github.com/anirag1206/ops-agent-team/raw/main/SETUP.bat) and [setup_windows.ps1](https://github.com/anirag1206/ops-agent-team/raw/main/setup_windows.ps1) into the same folder (for example Downloads), then double-click **SETUP.bat**. It installs Python, Git and Ollama, downloads the free AI model (it picks a smaller one if your PC has under 16 GB memory), downloads the team and your knowledge base, and puts a **Leadership Team** icon on your desktop. Click Yes when Windows asks, and sign in to GitHub when asked. It takes 15 to 40 minutes, mostly the model download. You can run it again any time to update.
+
+**Or do it by hand** (about 20 minutes):
+
 
 1. **Install Python** from https://www.python.org/downloads/ . On the first screen tick **"Add python.exe to PATH"**.
 2. **Install Git** from https://git-scm.com/download/win (default options).
