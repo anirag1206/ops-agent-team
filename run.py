@@ -8,6 +8,7 @@
   python run.py team        -> show the org chart
   python run.py update-kb   -> pull the latest knowledge base from GitHub
   python run.py whatsmcp-accounts -> list your WhatsMCP numbers and their account_id
+  python run.py whatsmcp-plan     -> show your WhatsMCP plan and limits
   python run.py whatsmcp-groups   -> list your WhatsApp groups
   python run.py staff-from-group "Group name" [role] -> add everyone who wrote in that group to contacts.local.json
 
@@ -89,6 +90,11 @@ def main():
     elif mode == "middleman":
         from middleman import Middleman
         Middleman(config, team).run()
+    elif mode == "whatsmcp-plan":
+        import whatsmcp_bridge
+        plan = whatsmcp_bridge._call("GET", f"/accounts/{config['whatsmcp']['account_id']}/plan")
+        for k in ("display_name", "plan", "messages_24h", "messages_1h", "webhooks_enabled", "history_days"):
+            print(f"{k}: {plan.get(k)}")
     elif mode == "whatsmcp-groups":
         import whatsmcp_bridge
         for g in whatsmcp_bridge.list_groups(config["whatsmcp"]["account_id"]):
