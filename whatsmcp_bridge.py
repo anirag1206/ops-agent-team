@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from whatsapp_bridge import _briefing_clock, handle_command
 
 API = "https://api.whatsmcp.com/v1"
+MARK = "\U0001F916 "  # robot emoji at the start of every team reply, so the team never answers itself
 
 
 def _call(method, path, body=None):
@@ -43,7 +44,7 @@ def send(config, to, text):
         print(f"\n[WhatsMCP not set up yet, would send to {to}]:\n{text}\n")
         return
     for i in range(0, len(text), 3900):
-        _call("POST", f"/accounts/{acc}/messages", {"to": to, "text": text[i:i + 3900]})
+        _call("POST", f"/accounts/{acc}/messages", {"to": to, "text": MARK + text[i:i + 3900]})
 
 
 def serve(team, config):
@@ -67,14 +68,45 @@ def serve(team, config):
 
     threading.Thread(target=_briefing_clock, args=(team, config, lock, briefing_sender), daemon=True).start()
 
+    own = _own_phone(wm.get("account_id"))
+    if own:
+        print(f"Linked WhatsApp number: {own}. You can also command the team by messaging yourself.")
     if wm.get("receive", "poll") == "webhook":
         _webhook(wm, work, int(config["whatsapp"].get("port", 8000)))
     else:
-        _poll(wm, work)
+        _poll(wm, work, own)
+
+
+def _own_phone(account_id):
+    try:
+        for a in _call("GET", "/accounts").get("accounts", []):
+            if a.get("account_id") == account_id:
+                return str(a.get("phone", "")).lstrip("+")
+    except Exception as e:
+        print("Could not read the linked number:", e)
+    return ""
+
+
+def _number(value):
+    return "".join(ch for ch in str(value or "").split("@")[0] if ch.isdigit())
+
+
+def _pick(m, own):
+    """Return the number to answer, or None if this message is not a command for the team."""
+    text = m.get("text") or ""
+    if not text or text.startswith(MARK.strip()):
+        return None  # empty, or one of the team's own replies
+    peer = _number(m.get("peer"))
+    chat = _number(m.get("chat"))
+    if own and own in (peer, chat):
+        return own  # "message yourself" chat
+    if str(m.get("direction", "")).lower() in ("in", "inbound", "incoming"):
+        return peer
+    return None
 
 
 # ---------------- free plan: polling ----------------
-def _poll(wm, work):
+def _poll(wm, work, own=""):
     here = os.path.dirname(os.path.abspath(__file__))
     cursor_file = os.path.join(here, "whatsmcp_cursor.txt")
     every = int(wm.get("poll_seconds", 900))
@@ -88,14 +120,21 @@ def _poll(wm, work):
             if not page.get("has_more"):
                 break
         open(cursor_file, "w").write(str(cursor))
+    seen = set()
     print(f"Checking WhatsMCP for new messages every {every} seconds (Ctrl+C to stop)")
     while True:
         try:
             page = _call("GET", f"/messages?after_cursor={cursor}&limit=50")
             for m in page.get("messages", []):
-                # GUESS: incoming messages are marked direction "in"/"inbound"; adjust if needed
-                if str(m.get("direction", "")).lower() in ("in", "inbound", "incoming") and m.get("text"):
-                    threading.Thread(target=work, args=(str(m.get("peer", "")), m["text"]), daemon=True).start()
+                if os.environ.get("DEBUG_WAMCP"):
+                    print("seen:", {k: m.get(k) for k in ("direction", "peer", "chat", "kind")}, (m.get("text") or "")[:40])
+                if m.get("message_id") in seen:
+                    continue
+                seen.add(m.get("message_id"))
+                who = _pick(m, own)
+                if who:
+                    print(f"Message from {who}: {m['text'][:60]}")
+                    threading.Thread(target=work, args=(who, m["text"]), daemon=True).start()
             cursor = page.get("next_cursor") or cursor
             open(cursor_file, "w").write(str(cursor))
             if page.get("has_more"):
@@ -119,7 +158,7 @@ def _webhook(wm, work, port):
             self.send_response(200)
             self.end_headers()
             data = json.loads(raw or b"{}")
-            if data.get("event") == "message.inbound" and data.get("body"):
+            if data.get("event") == "message.inbound" and data.get("body") and not data["body"].startswith(MARK.strip()):
                 threading.Thread(target=work, args=(str(data.get("peer", "")), data["body"]), daemon=True).start()
 
         def log_message(self, *a):
