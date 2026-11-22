@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import quote
 
 import media
+from tasks import TaskList
 import whatsmcp_bridge as wa
 from brain import Brain
 
@@ -88,6 +89,7 @@ class Middleman:
         self.day = datetime.now().date()
         here = os.path.dirname(os.path.abspath(__file__))
         self.rules_file = os.path.join(here, "grok_rules.local.md")
+        self.tasks = TaskList(os.path.join(here, "task_list.local.csv"), self.mm.get("task_groups", {}))
 
     # ---------- 1-3: receive, filter, batch ----------
     def on_message(self, m, groups, own):
@@ -112,6 +114,21 @@ class Middleman:
                 sender = own or sender  # your "Message yourself" chat: your control channel
             elif outbound:
                 return  # your own messages to other people
+        # anyone in a listed group (or a listed person): coded replies ("D22 DONE", "D10 under process") update the task list for free
+        key = chat if is_group else sender
+        who = self.names.get(sender) or ("Anirag (owner)" if sender in self.owner else
+                                         (f"{m['sender_name']} ({sender})" if m.get("sender_name") else sender))
+        if text and key not in self.read_only and not text.strip().lower().startswith(("tasks", "add task", "import task")):
+            plain = self.names.get(sender) or m.get("sender_name") or ("Anirag" if sender in self.owner else sender)
+            found = self.tasks.update_from_text(text, plain, self.group_names.get(chat, ""))
+            if found:
+                print("Task list updated:", ", ".join(f"{c} {st}" for c, st in found))
+                lines = [l for l in text.splitlines() if l.strip()]
+                if is_group and all(re.match(r"\s*[*_]*[A-Z]{1,3}\d", l) for l in lines):
+                    with self.lock:
+                        self.daylog[key].append(f"{datetime.now():%H:%M} {who}: {text[:300]}")
+                        self.history[key].append(f"{who}: {text}")
+                    return  # only status updates: saved, no Grok call needed
         everyone = route.get("everyone", self.mm.get("group_everyone", False))
         if sender not in self.people and not (is_group and everyone):
             return
@@ -174,8 +191,25 @@ class Middleman:
             return "Internal groups Grok can post in:\n" + "\n".join(f"- {n}" for n in sorted(self.postable_groups().values()))
         if low == "staff" and self.team.staff:
             return "\n".join(f"{p['name']} ({p.get('role') or '-'})" for p in self.team.staff.people) or "No staff listed."
+        if low in ("tasks", "task list", "open tasks"):
+            return self.tasks.summary(150)
+        if low.startswith(("tasks:", "import tasks", "add tasks", "add task")):
+            added = self.tasks.import_lines(text.split(":", 1)[1] if ":" in text.splitlines()[0] else "\n".join(text.splitlines()[1:]))
+            return f"Task list: added/updated {', '.join(added)}." if added else "No coded lines found. Use e.g. D5 | Deepak | task | 25 Nov"
+        m = re.fullmatch(r"(done|close|drop|delete)\s+([a-z]{1,3}\d{1,3}[a-z]?)", low)
+        if m:
+            r = self.tasks.get(m.group(2))
+            if not r:
+                return f"No task {m.group(2).upper()}."
+            if m.group(1) in ("drop", "delete"):
+                self.tasks.rows.remove(r)
+            else:
+                r.update(status="DONE", updated=datetime.now().strftime("%d %b %H:%M"), by="Anirag")
+            self.tasks.save()
+            return f"{r['code']} {'removed' if m.group(1) in ('drop', 'delete') else 'marked DONE'}."
         if low in ("help", "commands"):
-            return ("Commands: remember: ... | facts | groups | staff | outbox | send all | send 3 | cancel 3. "
+            return ("Commands: tasks | tasks: <paste coded list> | done D5 | drop D5 | remember: ... | facts | groups | "
+                    "staff | outbox | send all | send 3 | cancel 3. "
                     "Anything else goes to Grok, e.g. 'post in HR group: ...' or 'tell Komal to ...'.")
         return None
 
@@ -232,6 +266,13 @@ class Middleman:
             elif re.match(r"\s*ACTION:", line):
                 cur = None
                 here.append(line)
+            elif re.match(r"\s*(TASK|UPDATE)\s+[A-Z]{1,3}\d", line):
+                cur = None
+                body = re.sub(r"^\s*(TASK|UPDATE)\s+", "", line)
+                if line.strip().upper().startswith("TASK"):
+                    self.tasks.import_lines(body)
+                else:
+                    self.tasks.update_from_text(body.replace("|", " "), "CEO")
             elif cur:
                 cur[2].append(line)
             else:
@@ -409,7 +450,10 @@ class Middleman:
             f"briefly what you sent. {send_rule}\n\n"
             f"Internal groups you can post in:\n{groups_list}\n\n"
             f"Staff you can message:\n{people}\n\n"
-            f"Company knowledge:\n{brief}\n\nWhat the owner told you to remember:\n{facts}\n\nOpen tasks:\n{tasks}"
+            f"Company knowledge:\n{brief}\n\nWhat the owner told you to remember:\n{facts}\n\nOpen tasks:\n{tasks}\n\n"
+            f"{self.tasks.summary()}\n"
+            "To add a coded item: TASK <code> | <owner> | <task> | <due>. To change one: UPDATE <code> | DONE/WIP/HOLD/NEED | <note>. "
+            "Staff replies with codes update the list automatically."
             + self._rules()
         )
 
@@ -544,7 +588,7 @@ class Middleman:
                 logs.append(f"--- {name}{' (client group, read only)' if chat in self.read_only else ''} ---\n"
                             + "\n".join(lines)[-1500:])
             sent = self.team.memory.outbox("sent")[-40:]
-            body = ("Today's messages in your groups:\n" + ("\n".join(logs)[-14000:] or "(none)") +
+            body = (self.tasks.summary(150) + "\n\nToday's messages in your groups:\n" + ("\n".join(logs)[-12000:] or "(none)") +
                     "\n\nStaff messages sent (latest):\n" + ("\n".join(f"to {r[2]}: {r[4][:150]}" for r in sent) or "(none)"))
             target = self.owner[0] if self.owner else None
             if target:
@@ -555,6 +599,13 @@ class Middleman:
         for chat in list(self.groups):
             g = {"chat": chat, "name": self.group_names.get(chat, "")}
             if chat in self.read_only or not any(wa.group_matches(x, g) for x in to):
+                continue
+            if job.get("do") in ("post_tasks", "chase"):  # built from the task list, no AI needed
+                text = self.tasks.post_for(g["name"]) if job["do"] == "post_tasks" else self.tasks.chase_for(g["name"])
+                print(f"Scheduled {job['do']} -> {g['name']}: {len(text.splitlines())} lines")
+                if text:
+                    wa.send(self.config, chat, text)
+                    self.daylog[chat].append(f"{datetime.now():%H:%M} CEO: {text[:300]}")
                 continue
             print(f"Scheduled: {job.get('task', '')[:50]} -> {g['name'] or chat}")
             log = "\n".join(self.daylog.get(chat, [])) or "(no messages yet today)"
