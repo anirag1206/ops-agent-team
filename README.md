@@ -141,6 +141,8 @@ The middleman stays a simple messenger: it reads, passes to Grok, and posts Grok
 - **Schedule:** `middleman.schedule` runs jobs at set times, e.g. `{"time": "10:00", "to": ["DRA Daily Work"], "task": "Post today's coded task list"}` for a group, or `"to": "owner"` for a report to your self-chat. Each job is one Grok call per group and counts toward the caps.
 - **Owner notices** (drafts, copies of messages Grok sent, limits, reports) go only to the linked number's own chat, never to other allowed numbers.
 
+- **Talking to Grok from your self-chat:** anything you type goes to Grok, which can answer you, post in an internal group (`GROUP <name>: ...`) or message one employee (`MESSAGE <name>: ...`). The middleman checks every target: client/read-only groups and unknown or ambiguous names are refused and you are told why. Free commands that skip Grok: `help`, `groups`, `staff`, `outbox`, `send all`, `send 3`, `cancel 3`, `remember: ...`, `facts`.
+
 ## Part 3: Knowledge base, Graphify and GitHub
 
 - **lucent-kb**: every agent automatically reads the company snapshot, `decisions.md`, its own `departments/*.md` brief and its `data/*.md` snapshots. The CEO, Chief of Staff and HR also read `people.md`. Which files each agent reads is listed in `team.json` (`kb_brief`, `kb_data`).

@@ -121,8 +121,9 @@ class Middleman:
                                          (f"{m['sender_name']} ({sender})" if m.get("sender_name") else sender))
         if not is_group and sender in self.owner and not has_media:
             answer = self.owner_command(text)
-            if answer:
-                wa.send(self.config, key, answer)
+            if answer is not None:  # a command: handled here, Grok is not called
+                if answer:
+                    wa.send(self.config, key, answer)
                 return
         if has_media:
             label = "[picture]" if kind == "image" else f"[file: {att.get('file_name') or 'document'}]"
@@ -153,30 +154,154 @@ class Middleman:
             return "Noted. I'll include this every time I brief Grok."
         if low in ("facts", "what do you remember"):
             return "\n".join("- " + f for f in self.team.memory.facts()) or "Nothing saved yet. Send 'remember: ...'."
-        if self.team.staff:
-            return self.team.staff.owner_command(low, text)
+        m = re.fullmatch(r"(send|cancel)\s+(all|[\d ,]+)", low)
+        if m:
+            rows = self.team.memory.outbox("pending")
+            if m.group(2) != "all":
+                ids = {int(x) for x in re.findall(r"\d+", m.group(2))}
+                rows = [r for r in rows if r[0] in ids]
+            if not rows:
+                return "Nothing waiting."
+            if m.group(1) == "cancel":
+                for r in rows:
+                    self.team.memory.set_outbox(r[0], "cancelled")
+                return "Cancelled " + ", ".join(f"#{r[0]}" for r in rows)
+            self._auto_send(rows, force=True)
+            return ""
+        if low in ("outbox", "pending"):
+            return self._pending_text() if self.team.memory.outbox("pending") else "Nothing waiting."
+        if low in ("groups", "my groups"):
+            return "Internal groups Grok can post in:\n" + "\n".join(f"- {n}" for n in sorted(self.postable_groups().values()))
+        if low == "staff" and self.team.staff:
+            return "\n".join(f"{p['name']} ({p.get('role') or '-'})" for p in self.team.staff.people) or "No staff listed."
+        if low in ("help", "commands"):
+            return ("Commands: remember: ... | facts | groups | staff | outbox | send all | send 3 | cancel 3. "
+                    "Anything else goes to Grok, e.g. 'post in HR group: ...' or 'tell Komal to ...'.")
         return None
+
+    # ---------- Grok's instructions: MESSAGE <person>: ... / GROUP <group>: ... ----------
+    def postable_groups(self):
+        """Internal groups Grok may post in: listed groups that are not read-only (client) groups."""
+        return {c: self.group_names.get(c, c) for c in getattr(self, "groups", set()) if c not in self.read_only}
+
+    def find_group(self, name):
+        """(group id, None) or (None, reason)."""
+        want = name.strip().lower()
+        everything = {c: self.group_names.get(c, c) for c in getattr(self, "groups", set())}
+        hits = [c for c, n in everything.items() if wa.group_matches(want, {"chat": c, "name": n})]
+        if not hits:  # also try word by word, e.g. "HR group" -> "Lucent HR Recruitment"
+            words = [w for w in re.findall(r"[a-z0-9&]+", want) if w not in ("group", "the", "lucent", "in", "team")]
+            hits = [c for c, n in everything.items() if words and all(w in n.lower() for w in words)]
+        if not hits:
+            return None, f"no group called '{name}'"
+        exact = [c for c in hits if everything[c].lower() == want]
+        hits = exact or hits
+        if any(c in self.read_only for c in hits):
+            return None, f"'{everything[hits[0]]}' is a client / read-only group, so nothing was posted there"
+        if len(hits) > 1:
+            return None, f"'{name}' fits several groups ({', '.join(everything[c] for c in hits[:4])}); be more specific"
+        return hits[0], None
+
+    def find_person(self, name):
+        """(person, None) or (None, reason). Exact name first, then a unique partial match."""
+        people = self.team.staff.people if self.team.staff else []
+        want = name.strip().lower()
+        hits = [p for p in people if p["name"].lower() == want] or \
+               [p for p in people if want in p["name"].lower()] or \
+               [p for p in people if want.split()[0] in p["name"].lower().split()]
+        names = {p["name"] for p in hits}
+        if not hits:
+            return None, f"'{name}' is not in contacts.local.json"
+        if len(names) > 1:
+            return None, f"'{name}' fits several people ({', '.join(sorted(names)[:4])}); use the full name"
+        return hits[0], None
+
+    def deliver(self, reply):
+        """Returns (text for the current chat, notes for the owner)."""
+        return self._deliver(reply)
+
+    def _deliver(self, reply):
+        """Split Grok's reply: text for the current chat, plus MESSAGE / GROUP blocks sent elsewhere.
+        A block runs until the next block or ACTION line. Returns the text for the current chat."""
+        here, blocks, cur = [], [], None
+        for line in reply.splitlines():
+            m = re.match(r"\s*\**\s*(MESSAGE|GROUP)\s+([^:\n]{2,60}?)\s*\**\s*:\s*(.*)", line)
+            if m:
+                cur = [m.group(1).upper(), m.group(2).strip(), [m.group(3)]]
+                blocks.append(cur)
+            elif re.match(r"\s*ACTION:", line):
+                cur = None
+                here.append(line)
+            elif cur:
+                cur[2].append(line)
+            else:
+                here.append(line)
+        # tasks are saved, but nobody is messaged from an ACTION line (only explicit MESSAGE / GROUP)
+        for owner, task, due in re.findall(r"ACTION:\s*([a-z]+)\s*\|\s*([^|\n]+)\|\s*([^\n]+)", reply):
+            if owner in self.team.agents:
+                self.team.memory.add_task(owner, task.strip(), due.strip())
+        problems, new = [], []
+        for kind, target, lines in blocks:
+            body = "\n".join(lines).strip()
+            if not body:
+                continue
+            if kind == "GROUP":
+                chat, why = self.find_group(target)
+                label = self.group_names.get(chat, target)
+            else:
+                person, why = self.find_person(target)
+                chat, label = (person["phone"], person["name"]) if person else (None, target)
+            if not chat:
+                problems.append(why)
+                continue
+            new.append(self.team.memory.add_outbox(None, ("group " if kind == "GROUP" else "") + label, chat, body))
+        rows = [r for r in self.team.memory.outbox("pending") if r[0] in new]
+        notes = []
+        if rows:
+            if self.team.staff and self.team.staff.mode == "auto":
+                notes.append(self._auto_send(rows, quiet=True))
+            else:
+                notes.append(self._pending_text())
+        if problems:
+            notes.append("⚠️ Not sent: " + "; ".join(problems) + ".")
+        return self.team._clean("\n".join(here)), "\n\n".join(n for n in notes if n)
+
+    def _pending_text(self):
+        rows = self.team.memory.outbox("pending")
+        return ("Waiting for your OK:\n" + "\n".join(f"#{r[0]} to {r[2]}: {r[4].splitlines()[0][:120]}" for r in rows) +
+                "\nReply 'send all', 'send 3' or 'cancel 3'.")
 
     def _notify(self, text):
         """Owner-only notices (drafts, copies, limits, reports) go ONLY to your own self-chat."""
         if self.owner:
             wa.send(self.config, self.owner[0], text)
 
-    def _auto_send(self, rows):
+    def _auto_send(self, rows, force=False, quiet=False):
         """staff_messages "auto": Grok's messages go straight to staff (listed contacts only),
         within a daily cap, and you get a copy in your self-chat."""
         cap = int(self.mm.get("max_staff_messages_per_day", 60))
         if self.stats.get("staff_day") != datetime.now().date():
             self.stats.update(staff_day=datetime.now().date(), staff_sent=0)
-        if self.stats["staff_sent"] + len(rows) > cap:
-            self._notify(f"Today's limit of {cap} staff messages is reached, so these wait for you:\n"
-                        + self.team.staff.pending_text())
-            return
-        result = self.team.staff.send([r[0] for r in rows])
+        if not force and self.stats["staff_sent"] + len(rows) > cap:
+            msg = f"Today's limit of {cap} staff messages is reached, so these wait for you:\n" + self._pending_text()
+            return msg if quiet else self._notify(msg)
+        done = []
+        for r in rows:
+            try:
+                wa.send(self.config, r[3], r[4])
+                self.team.memory.set_outbox(r[0], "sent")
+                done.append(f"#{r[0]} to {r[2]}")
+                self.daylog[r[3]].append(f"{datetime.now():%H:%M} CEO: {r[4][:300]}")
+                self.history[r[3]].append(f"CEO: {r[4]}")
+            except Exception as e:
+                done.append(f"#{r[0]} to {r[2]} FAILED: {e}")
+        result = "Sent: " + ", ".join(done)
         self.stats["staff_sent"] += len(rows)
         print(result)
-        copy = "\n\n".join(f"To {r[2]}:\n{r[4]}" for r in rows)
-        self._notify(f"Grok sent:\n{copy}\n\n({result})")
+        copy = "\n\n".join(f"✅ Sent to {r[2]}:\n{r[4]}" for r in rows if f"#{r[0]} to {r[2]} FAILED" not in result)
+        fails = [d for d in done if "FAILED" in d]
+        msg = (copy + ("\n\n⚠️ " + "; ".join(fails) if fails else "")).strip()
+        return msg if quiet else self._notify(msg)
 
     def _attachments(self, p):
         """Download WhatsApp pictures and files of one bundle: (pictures for Grok, text from files)."""
@@ -205,7 +330,8 @@ class Middleman:
             with self.lock:
                 for key, p in list(self.pending.items()):
                     # wait until the person stops typing for batch_seconds (max 3x that overall)
-                    if now - p["last"] >= self.batch_seconds or now - p["first"] >= 3 * self.batch_seconds:
+                    wait = 5 if p["reply_to"] in self.owner else self.batch_seconds  # your own chat: answer fast
+                    if now - p["last"] >= wait or now - p["first"] >= 3 * wait:
                         ready.append(self.pending.pop(key))
             for p in ready:
                 self.ask_ceo(p)
@@ -259,6 +385,7 @@ class Middleman:
         send_rule = ("It is sent straight away and the owner gets a copy. Be polite and specific; never message "
                      "customers or outside parties." if self.team.staff and self.team.staff.mode == "auto" else
                      "The owner approves each message before it is sent, so never say it was already sent.")
+        groups_list = "\n".join(f"- {n}" for n in sorted(self.postable_groups().values())) or "- none"
         people = "\n".join(f"- {p['name']}: {self.team.agents.get(p.get('role'), {}).get('title', p.get('role') or 'role not set')}"
                            for p in (self.team.staff.people if self.team.staff else [])[:80]) or "- none listed yet"
         return (
@@ -271,9 +398,15 @@ class Middleman:
             "If the message needs no answer from you, reply exactly NO_REPLY.\n"
             "To give someone a task, add a line: ACTION: <dept id> | <task> | <due>  "
             f"(dept ids: {', '.join(self.team.agents)}).\n"
-            "To message one employee directly on WhatsApp (task, reminder, question), add a line: "
-            "MESSAGE <name>: <text>. Use only names from the staff list. "
-            f"{send_rule}\n\n"
+            "To send something to ANOTHER chat, end your reply with blocks like these (each block runs until "
+            "the next block):\n"
+            "GROUP <group name>: <text>   -> posts in that internal WhatsApp group\n"
+            "MESSAGE <person name>: <text>   -> sends to that one employee\n"
+            "When the owner asks you to post in a group, use GROUP with that group, never MESSAGE to a person. "
+            "Use only group names and people from the lists below; client groups are read only, never post there. "
+            "Your normal reply (before the blocks) goes back to the chat you are answering, so tell the owner "
+            f"briefly what you sent. {send_rule}\n\n"
+            f"Internal groups you can post in:\n{groups_list}\n\n"
             f"Staff you can message:\n{people}\n\n"
             f"Company knowledge:\n{brief}\n\nWhat the owner told you to remember:\n{facts}\n\nOpen tasks:\n{tasks}"
             + self._rules()
@@ -312,26 +445,11 @@ class Middleman:
         if reply.strip().upper().startswith("NO_REPLY"):
             print("CEO chose not to reply.")
             return
-        before = len(self.team.memory.outbox("pending"))
-        self.team._save_actions(reply)
-        lines, unknown = [], []
-        for line in reply.splitlines():
-            mm = re.match(r"\s*MESSAGE\s+([^:]{2,40}):\s*(.+)", line)
-            if mm and self.team.staff:
-                if not self.team.staff.draft_direct(mm.group(1), mm.group(2).strip()):
-                    unknown.append(mm.group(1).strip())
-            else:
-                lines.append(line)
-        text = self.team._clean("\n".join(lines))
-        if self.team.staff:
-            rows = self.team.memory.outbox("pending")
-            if self.team.staff.mode == "auto" and rows:
-                self._auto_send(rows)
-            elif len(self.team.memory.outbox("pending")) > before:
-                self._notify(self.team.staff.pending_text())
-            if unknown:
-                self._notify("Grok wanted to message " + ", ".join(unknown) +
-                            " but they are not in contacts.local.json.")
+        text, notes = self.deliver(reply)
+        if notes and p["reply_to"] in self.owner:  # you asked: one tidy answer in your chat
+            text = (text.strip() + "\n\n" + notes).strip()
+        elif notes:
+            self._notify(notes)
         if not text.strip():
             return
         if p["reply_to"] in self.read_only:
