@@ -132,6 +132,9 @@ def main():
         import whatsmcp_bridge
         own = whatsmcp_bridge._own_phone(config["whatsmcp"]["account_id"])
         targets = [r["chat"] for r in config.get("routes", []) if r.get("everyone")] if args[1].lower() == "all" else [args[1]]
+        if not targets:
+            print('No internal groups found. In config.local.json, routes with "everyone": true count as internal.')
+        total = 0
         for target in targets:
             try:
                 gname, added = whatsmcp_bridge.add_group_to_contacts(
@@ -140,8 +143,11 @@ def main():
             except Exception as e:
                 print(f"{target}: {e}")
                 continue
-            print(f"Group '{gname or target}': added {len(added)} people to contacts.local.json")
-            print("\n".join(added) or "(nobody new; only people who have written in the group can be found)")
+            total += len(added)
+            print(f"\nGroup '{gname or target}': added {len(added)} new people")
+            print("\n".join("  " + a for a in added) or "  (nobody new; only people who have written in the group can be found)")
+        if len(targets) > 1:
+            print(f"\nChecked {len(targets)} internal groups, added {total} people in total.")
         print("Open contacts.local.json in Notepad, check names, and fill in each person's role.")
     elif mode == "whatsmcp-accounts":
         import whatsmcp_bridge
