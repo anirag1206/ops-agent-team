@@ -12,6 +12,7 @@
   python run.py whatsmcp-plan     -> show your WhatsMCP plan and limits
   python run.py whatsmcp-groups   -> list your WhatsApp groups
   python run.py staff-from-group "Group name" [role] -> add everyone who wrote in that group to contacts.local.json
+  python run.py staff-from-group all -> the same for every internal group ("everyone": true in routes)
 
 Add --show to see the full discussion between agents (who said what).
 """
@@ -127,13 +128,20 @@ def main():
             print(line)
     elif mode == "staff-from-group":
         # python run.py staff-from-group "Group name" [role]
+        # "all" = every group in routes with "everyone": true (your internal groups)
         import whatsmcp_bridge
         own = whatsmcp_bridge._own_phone(config["whatsmcp"]["account_id"])
-        gname, added = whatsmcp_bridge.add_group_to_contacts(
-            os.path.join(HERE, "contacts.local.json"), config["whatsmcp"]["account_id"],
-            args[1], args[2] if len(args) > 2 else "", own)
-        print(f"Group '{gname}': added {len(added)} people to contacts.local.json")
-        print("\n".join(added) or "(nobody new; only people who have written in the group can be found)")
+        targets = [r["chat"] for r in config.get("routes", []) if r.get("everyone")] if args[1].lower() == "all" else [args[1]]
+        for target in targets:
+            try:
+                gname, added = whatsmcp_bridge.add_group_to_contacts(
+                    os.path.join(HERE, "contacts.local.json"), config["whatsmcp"]["account_id"],
+                    target, args[2] if len(args) > 2 else "", own)
+            except Exception as e:
+                print(f"{target}: {e}")
+                continue
+            print(f"Group '{gname or target}': added {len(added)} people to contacts.local.json")
+            print("\n".join(added) or "(nobody new; only people who have written in the group can be found)")
         print("Open contacts.local.json in Notepad, check names, and fill in each person's role.")
     elif mode == "whatsmcp-accounts":
         import whatsmcp_bridge

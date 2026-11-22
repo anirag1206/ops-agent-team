@@ -133,6 +133,8 @@ The middleman stays a simple messenger: it reads, passes to Grok, and posts Grok
   - `skip_senders` and `always_read` (parts of addresses) fine-tune the free filter.
 - **Teaching:** Grok through the API does not remember past chats by itself. Send `remember: emails from xyz.com are Regulatory` on WhatsApp; the middleman saves it (no AI cost) and includes it every time it briefs Grok. `facts` shows the list. `send N` / `cancel N` approve staff messages, as in Part 2b.
 
+- **Grok messages employees:** everyone in `contacts.local.json` is listed in Grok's briefing. Grok can write `MESSAGE <name>: <text>`; the middleman turns that into a draft and asks you privately on WhatsApp. Nothing reaches the employee until you reply `send all` or `send 3` (`cancel 3` drops it). Fill the contacts quickly with `python run.py staff-from-group all`, which collects everyone who has written in your internal groups (routes with `"everyone": true`); then open `contacts.local.json` and set each person's role.
+
 ## Part 3: Knowledge base, Graphify and GitHub
 
 - **lucent-kb**: every agent automatically reads the company snapshot, `decisions.md`, its own `departments/*.md` brief and its `data/*.md` snapshots. The CEO, Chief of Staff and HR also read `people.md`. Which files each agent reads is listed in `team.json` (`kb_brief`, `kb_data`).

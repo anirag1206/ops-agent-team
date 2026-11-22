@@ -107,7 +107,8 @@ class Middleman:
             return
         self.stats["seen"] += 1
         key = chat if is_group else sender
-        who = self.names.get(sender) or ("Anirag (owner)" if sender in self.owner else sender)
+        who = self.names.get(sender) or ("Anirag (owner)" if sender in self.owner else
+                                         (f"{m['sender_name']} ({sender})" if m.get("sender_name") else sender))
         if not is_group and sender in self.owner and not has_media:
             answer = self.owner_command(text)
             if answer:
@@ -211,6 +212,8 @@ class Middleman:
         tasks = "\n".join(f"#{t[0]} {self.team.agents.get(t[1], {}).get('title', t[1])}: {t[2]} (due {t[3]})"
                           for t in self.team.memory.open_tasks()[:15]) or "none"
         facts = "\n".join("- " + f for f in self.team.memory.facts()) or "- none yet"
+        people = "\n".join(f"- {p['name']}: {self.team.agents.get(p.get('role'), {}).get('title', p.get('role') or 'role not set')}"
+                           for p in (self.team.staff.people if self.team.staff else [])[:80]) or "- none listed yet"
         return (
             f"You are the CEO of {self.team.company}, working on WhatsApp with the owner "
             f"({self.team.owner}) and plant staff. You learn the business, ask staff short questions, "
@@ -220,7 +223,11 @@ class Middleman:
             "Ask the owner before money, approvals, hiring/firing, or messages to outside parties. "
             "If the message needs no answer from you, reply exactly NO_REPLY.\n"
             "To give someone a task, add a line: ACTION: <dept id> | <task> | <due>  "
-            f"(dept ids: {', '.join(self.team.agents)}).\n\n"
+            f"(dept ids: {', '.join(self.team.agents)}).\n"
+            "To message one employee directly on WhatsApp (task, reminder, question), add a line: "
+            "MESSAGE <name>: <text>. Use only names from the staff list. The owner approves each message "
+            "before it is sent, so never say it was already sent.\n\n"
+            f"Staff you can message:\n{people}\n\n"
             f"Company knowledge:\n{brief}\n\nWhat the owner told you to remember:\n{facts}\n\nOpen tasks:\n{tasks}"
         )
 
@@ -258,12 +265,30 @@ class Middleman:
         if reply.strip().upper().startswith("NO_REPLY"):
             print("CEO chose not to reply.")
             return
+        before = len(self.team.memory.outbox("pending"))
         self.team._save_actions(reply)
-        text = self.team._clean(reply)
+        lines, unknown = [], []
+        for line in reply.splitlines():
+            mm = re.match(r"\s*MESSAGE\s+([^:]{2,40}):\s*(.+)", line)
+            if mm and self.team.staff:
+                if not self.team.staff.draft_direct(mm.group(1), mm.group(2).strip()):
+                    unknown.append(mm.group(1).strip())
+            else:
+                lines.append(line)
+        text = self.team._clean("\n".join(lines))
         if self.team.staff:
-            extra = self.team.staff.auto_send_if_allowed() or ""
-            if extra:
-                print(extra)
+            sent = self.team.staff.auto_send_if_allowed() or ""
+            if sent:
+                print(sent)
+            elif len(self.team.memory.outbox("pending")) > before:
+                for o in self.owner:  # ask the owner, privately, before anything goes to staff
+                    wa.send(self.config, o, self.team.staff.pending_text())
+            if unknown:
+                for o in self.owner:
+                    wa.send(self.config, o, "Grok wanted to message " + ", ".join(unknown) +
+                            " but they are not in contacts.local.json.")
+        if not text.strip():
+            return
         wa.send(self.config, p["reply_to"], text)
         self.history[p["reply_to"]].append(f"CEO: {text}")
         self.stats["replies"] += 1
