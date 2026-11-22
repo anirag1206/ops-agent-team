@@ -45,8 +45,27 @@
     "max_reply_tokens": 400,
     "history_messages": 10,
     "group_everyone": false,
-    "full_ceo_notes": false
+    "full_ceo_notes": false,
+    "read_pictures": true,
+    "read_files": true,
+    "max_files_per_message": 4
   },
   "_routes_help": "Which bot answers which group or person (middleman). chat = part of a group name, or a phone number (91...). bot = ceo, cos, cfo, coo, qa, eng, scm, fd, ra, bd, dom, hr, team (whole team, costs more) or ignore. brain (optional) = grok, claude or default. everyone = true lets anyone in that group talk to the bot. First match wins; anything not listed goes to the CEO.",
-  "routes": []
+  "routes": [],
+  "_email_help": "For the middleman: reads new emails (read only) and passes them to Grok; Grok's reply comes to you on WhatsApp. Gmail/Google Workspace: create an App password, then setx EMAIL_APP_PASSWORD \"...\". Put your address in user. skip_senders / always_read take parts of email addresses. Nothing is ever sent by email.",
+  "email": {
+    "enabled": false,
+    "user": "",
+    "imap_host": "imap.gmail.com",
+    "imap_port": 993,
+    "password_env": "EMAIL_APP_PASSWORD",
+    "folder": "INBOX",
+    "check_minutes": 5,
+    "max_per_check": 10,
+    "max_chars_per_email": 2000,
+    "read_pictures": true,
+    "skip_automatic": true,
+    "skip_senders": [],
+    "always_read": []
+  }
 }

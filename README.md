@@ -119,6 +119,20 @@ Add a `routes` list to `config.local.json`. Each line says: messages from this c
 - **everyone:** optional, groups only. `true` lets anyone in that group ask; otherwise only people in `allowed_numbers`.
 - The first matching line wins. Anything not listed goes to the CEO, and only from allowed people. At start the middleman prints each group and person with its bot, so you can check.
 
+## Part 2f: Pictures, files and email go to Grok too
+
+The middleman stays a simple messenger: it reads, passes to Grok, and posts Grok's answer back. Grok does the thinking.
+
+- **WhatsApp pictures:** sent to Grok with the message, so Grok can look at them (labels, BMR pages, machine photos). Your Grok model must accept pictures; if replies say it can't see images, pick a vision-capable model on console.x.ai.
+- **WhatsApp files:** Word, Excel, text and PDF files are turned into text on your PC for free and that text goes to Grok. PDF needs `pip install pypdf` (the setup script installs it). Scanned PDFs have no text; send a photo instead.
+- **Email:** every 5 minutes the middleman reads new mail (read only: nothing is marked read, moved, deleted or sent). Newsletters and automatic mails are skipped for free. New emails go to Grok in one call, and Grok tells you on WhatsApp what matters, which department it is for, and what to do. You answer Grok on WhatsApp as normal.
+  1. Gmail / Google Workspace: turn on 2-Step Verification, then make an App password at https://myaccount.google.com/apppasswords (a Workspace admin may need to allow this).
+  2. `setx EMAIL_APP_PASSWORD "the 16 letters"` and open a new Command Prompt.
+  3. In `config.local.json` add `"email": {"enabled": true, "user": "you@yourcompany.com"}`.
+  4. `python run.py email-test`, then start the middleman.
+  - `skip_senders` and `always_read` (parts of addresses) fine-tune the free filter.
+- **Teaching:** Grok through the API does not remember past chats by itself. Send `remember: emails from xyz.com are Regulatory` on WhatsApp; the middleman saves it (no AI cost) and includes it every time it briefs Grok. `facts` shows the list. `send N` / `cancel N` approve staff messages, as in Part 2b.
+
 ## Part 3: Knowledge base, Graphify and GitHub
 
 - **lucent-kb**: every agent automatically reads the company snapshot, `decisions.md`, its own `departments/*.md` brief and its `data/*.md` snapshots. The CEO, Chief of Staff and HR also read `people.md`. Which files each agent reads is listed in `team.json` (`kb_brief`, `kb_data`).

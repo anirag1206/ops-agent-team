@@ -55,7 +55,7 @@ else {
 
 # 5. Graphify (free, open source) for the knowledge map
 Say "Installing Graphify ..."
-python -m pip install --quiet --upgrade graphifyy
+python -m pip install --quiet --upgrade graphifyy pypdf
 
 # 6. Your own settings live in config.local.json, so updates never clash with them
 $localPath = "$Team\config.local.json"

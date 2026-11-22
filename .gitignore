@@ -10,3 +10,4 @@ __pycache__/
 config.local.json
 contacts.local.json
 whatsmcp_cursors.json
+email_state.json

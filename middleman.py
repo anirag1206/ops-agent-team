@@ -26,6 +26,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import quote
 
+import media
 import whatsmcp_bridge as wa
 from brain import Brain
 
@@ -84,7 +85,11 @@ class Middleman:
         text = (m.get("text") or m.get("body") or "").strip()
         chat = str(m.get("chat") or m.get("chat_jid") or "")
         sender = wa._number(m.get("peer"))
-        if not text or text.startswith(wa.MARK.strip()):
+        kind = m.get("kind") or "text"
+        att = m.get("attachment") or {}
+        has_media = ((kind == "image" and self.mm.get("read_pictures", True)) or
+                     (kind == "document" and self.mm.get("read_files", True))) and m.get("message_id")
+        if (not text and not has_media) or text.startswith(wa.MARK.strip()):
             return
         is_group = "@g.us" in chat
         if is_group and chat not in groups:
@@ -103,15 +108,56 @@ class Middleman:
         self.stats["seen"] += 1
         key = chat if is_group else sender
         who = self.names.get(sender) or ("Anirag (owner)" if sender in self.owner else sender)
+        if not is_group and sender in self.owner and not has_media:
+            answer = self.owner_command(text)
+            if answer:
+                wa.send(self.config, key, answer)
+                return
+        if has_media:
+            label = "[picture]" if kind == "image" else f"[file: {att.get('file_name') or 'document'}]"
+            text = f"{label} {text}".strip()
         with self.lock:
             self.history[key].append(f"{who}: {text}")
-            if not worth_forwarding(text, m.get("kind", "text")):
+            if not has_media and not worth_forwarding(text, kind):
                 self.stats["dropped"] += 1
                 return
             p = self.pending.setdefault(key, {"reply_to": key, "lines": [], "first": time.time(), "group": is_group,
-                                              "route": route})
+                                              "route": route, "media": []})
             p["lines"].append(f"{who}: {text}")
+            if has_media:
+                p["media"].append({"id": m["message_id"], "kind": kind, "name": att.get("file_name", "")})
             p["last"] = time.time()
+
+    def owner_command(self, text):
+        """A few free commands from the owner that need no AI. Returns a reply or None."""
+        low = text.strip().lower()
+        if low.startswith("remember:"):
+            self.team.memory.add_fact(text.split(":", 1)[1].strip())
+            return "Noted. I'll include this every time I brief Grok."
+        if low in ("facts", "what do you remember"):
+            return "\n".join("- " + f for f in self.team.memory.facts()) or "Nothing saved yet. Send 'remember: ...'."
+        if self.team.staff:
+            return self.team.staff.owner_command(low, text)
+        return None
+
+    def _attachments(self, p):
+        """Download WhatsApp pictures and files of one bundle: (pictures for Grok, text from files)."""
+        images, notes = list(p.get("images", [])), []
+        acc = self.config["whatsmcp"].get("account_id")
+        for a in p.get("media", [])[:int(self.mm.get("max_files_per_message", 4))]:
+            try:
+                data, mime = media.fetch_whatsapp(acc, a["id"])
+            except Exception as e:
+                print("Attachment download failed:", e)
+                continue
+            pic = media.as_image(data, mime) if a["kind"] == "image" else None
+            if pic:
+                images.append(pic)
+            elif data:
+                text = media.file_text(data, mime, a["name"])
+                notes.append(f"Text of file {a['name'] or ''}:\n{text}" if text
+                             else f"(File {a['name'] or ''} could not be read on this PC.)")
+        return images, "\n\n".join(notes)
 
     def flush_loop(self):
         while True:
@@ -164,6 +210,7 @@ class Middleman:
                 brief += "\n\n" + kb.read(ceo.get("kb_brief", ""), 3000)
         tasks = "\n".join(f"#{t[0]} {self.team.agents.get(t[1], {}).get('title', t[1])}: {t[2]} (due {t[3]})"
                           for t in self.team.memory.open_tasks()[:15]) or "none"
+        facts = "\n".join("- " + f for f in self.team.memory.facts()) or "- none yet"
         return (
             f"You are the CEO of {self.team.company}, working on WhatsApp with the owner "
             f"({self.team.owner}) and plant staff. You learn the business, ask staff short questions, "
@@ -174,7 +221,7 @@ class Middleman:
             "If the message needs no answer from you, reply exactly NO_REPLY.\n"
             "To give someone a task, add a line: ACTION: <dept id> | <task> | <due>  "
             f"(dept ids: {', '.join(self.team.agents)}).\n\n"
-            f"Company knowledge:\n{brief}\n\nOpen tasks:\n{tasks}"
+            f"Company knowledge:\n{brief}\n\nWhat the owner told you to remember:\n{facts}\n\nOpen tasks:\n{tasks}"
         )
 
     def ask_ceo(self, p):
@@ -186,9 +233,14 @@ class Middleman:
                                             "Raise max_ai_calls_per_day in config.local.json if needed.")
             print("Budget cap reached; skipped:", p["lines"][-1][:60])
             return
-        recent = "\n".join(list(self.history[p["reply_to"]])[:-len(p["lines"])] or ["(none)"])
-        prompt = (f"{'Group chat' if p['group'] else 'Private chat'}. Earlier messages:\n{recent}\n\n"
-                  f"New message(s):\n" + "\n".join(p["lines"]) + "\n\nYour reply:")
+        earlier = [h for h in self.history[p["reply_to"]] if h not in p["lines"]]
+        recent = "\n".join(earlier or ["(none)"])
+        images, files = self._attachments(p)
+        header = p.get("header") or ("Group chat" if p["group"] else "Private chat")
+        prompt = (f"{header}. Earlier messages:\n{recent}\n\n"
+                  f"New message(s):\n" + "\n".join(p["lines"]) +
+                  (f"\n\n{files}" if files else "") +
+                  (f"\n\n({len(images)} picture(s) attached, look at them.)" if images else "") + "\n\nYour reply:")
         route = p.get("route") or {}
         bot = route.get("bot", "ceo")
         brain = self._brain_for(route.get("brain"))
@@ -198,7 +250,7 @@ class Middleman:
             if bot == "team":  # whole leadership team discusses (several AI calls, costs more)
                 reply = self.team.handle("\n".join(p["lines"]))
             else:
-                reply = brain.think(self._briefing(bot), prompt, int(self.mm.get("max_reply_tokens", 400)))
+                reply = brain.think(self._briefing(bot), prompt, int(self.mm.get("max_reply_tokens", 400)), images)
         except Exception as e:
             print("CEO call failed:", e)
             return
@@ -247,6 +299,9 @@ class Middleman:
             if phone.isdigit():
                 print(f"Person: {self.names.get(phone, phone)}  ->  {r.get('bot', 'ceo')}")
         threading.Thread(target=self.flush_loop, daemon=True).start()
+        if self.config.get("email", {}).get("enabled"):
+            from email_reader import EmailReader
+            threading.Thread(target=EmailReader(self.config, self).loop, daemon=True).start()
         print(f"Middleman ready. People: {len(self.people)}, groups: {len(groups)}, "
               f"Grok caps: {self.cap_hour}/hour, {self.cap_day}/day.")
         if wm.get("receive", "poll") == "webhook":
@@ -297,7 +352,8 @@ class Middleman:
                 data = json.loads(raw or b"{}")
                 if data.get("event") == "message.inbound":
                     mm.on_message({"text": data.get("body"), "chat": data.get("chat_jid"), "peer": data.get("peer"),
-                                   "kind": data.get("kind", "text"), "direction": "inbound"}, groups, own)
+                                   "kind": data.get("kind", "text"), "message_id": data.get("message_id"),
+                                   "direction": "inbound"}, groups, own)
 
             def log_message(self, *a):
                 pass

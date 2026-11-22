@@ -5,6 +5,7 @@
   python run.py briefing    -> morning briefing now
   python run.py whatsapp    -> start the WhatsApp connection + daily briefing
   python run.py middleman   -> cheap filter: watch WhatsApp, call the CEO AI (Grok) only when needed
+  python run.py email-test  -> check the mailbox login and show the newest emails' subjects
   python run.py team        -> show the org chart
   python run.py update-kb   -> pull the latest knowledge base from GitHub
   python run.py whatsmcp-accounts -> list your WhatsMCP numbers and their account_id
@@ -90,6 +91,18 @@ def main():
     elif mode == "middleman":
         from middleman import Middleman
         Middleman(config, team).run()
+    elif mode == "email-test":
+        from email_reader import EmailReader
+        r = EmailReader(config)
+        box = r._login()
+        ok, data = box.uid("search", None, "ALL")
+        uids = data[0].split()
+        print(f"Logged in to {config['email'].get('user')}: {len(uids)} emails in {config['email'].get('folder', 'INBOX')}.")
+        for u in uids[-5:]:
+            ok, parts = box.uid("fetch", u, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+            print(" ", parts[0][1].decode("utf-8", "replace").strip().replace("\r\n", " | "))
+        box.logout()
+        print("Email works. Set \"enabled\": true in the email block of config.local.json and start the middleman.")
     elif mode == "whatsmcp-plan":
         import whatsmcp_bridge
         plan = whatsmcp_bridge._call("GET", f"/accounts/{config['whatsmcp']['account_id']}/plan")

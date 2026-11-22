@@ -18,17 +18,19 @@ class Brain:
         self.kind = config.get("brain", "ollama")
         self.config = config
 
-    def think(self, system, prompt, max_tokens=700):
+    def think(self, system, prompt, max_tokens=700, images=None):
+        """images: optional list of (mime, base64) pictures the AI should look at."""
+        images = images or []
         if self.kind == "ollama":
-            return self._ollama(system, prompt)
+            return self._ollama(system, prompt, images)
         if self.kind == "claude":
-            return self._claude(system, prompt, max_tokens)
+            return self._claude(system, prompt, max_tokens, images)
         if self.kind == "online":
-            return self._online(system, prompt, max_tokens)
+            return self._online(system, prompt, max_tokens, images)
         return self._demo(system, prompt)
 
     # ---- free, local -------------------------------------------------
-    def _ollama(self, system, prompt):
+    def _ollama(self, system, prompt, images=()):
         url = self.config.get("ollama_url", "http://localhost:11434") + "/api/chat"
         model = self.config.get("ollama_model", "qwen2.5:7b")
         ctx = int(self.config.get("ollama_context", 8192))
@@ -40,7 +42,7 @@ class Brain:
                 "stream": False,
                 "messages": [
                     {"role": "system", "content": system},
-                    {"role": "user", "content": prompt},
+                    {"role": "user", "content": prompt, **({"images": [b for _, b in images]} if images else {})},
                 ],
                 "options": {"temperature": 0.3, "num_ctx": size},
             }
@@ -63,7 +65,7 @@ class Brain:
         )
 
     # ---- paid, hosted ------------------------------------------------
-    def _claude(self, system, prompt, max_tokens):
+    def _claude(self, system, prompt, max_tokens, images=()):
         key = os.environ.get("ANTHROPIC_API_KEY")
         if not key:
             raise RuntimeError("Set the ANTHROPIC_API_KEY environment variable to use Claude.")
@@ -71,14 +73,16 @@ class Brain:
             "model": self.config.get("claude_model", "claude-sonnet-5-5"),
             "max_tokens": max_tokens,
             "system": system,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": m, "data": b}} for m, b in images
+            ] + [{"type": "text", "text": prompt}]}],
         }
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
         data = _post_json("https://api.anthropic.com/v1/messages", body, headers, timeout=120)
         return "".join(b.get("text", "") for b in data["content"]).strip()
 
     # ---- hosted, OpenAI-style API (Groq, Gemini, OpenRouter...): some have free tiers ----
-    def _online(self, system, prompt, max_tokens):
+    def _online(self, system, prompt, max_tokens, images=()):
         env = self.config.get("online_key_env", "ONLINE_AI_KEY")
         key = os.environ.get(env)
         if not key:
@@ -88,7 +92,9 @@ class Brain:
             "model": self.config.get("online_model", "llama-3.3-70b-versatile"),
             "max_tokens": max_tokens,
             "temperature": 0.3,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:{m};base64,{b}"}} for m, b in images
+            ] + [{"type": "text", "text": prompt}] if images else prompt}],
         }
         data = _post_json(base + "/chat/completions", body, {"Authorization": f"Bearer {key}"}, timeout=120)
         return data["choices"][0]["message"]["content"].strip()
