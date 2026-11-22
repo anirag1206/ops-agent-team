@@ -114,7 +114,10 @@ class TaskList:
         return out
 
     def line(self, r):
-        bits = [r["code"], r["owner"] or "owner TBD", r["task"], ("due " + r["due"]) if r["due"] else ""]
+        due = r["due"]
+        if due and re.match(r"\d{1,2}(-\d{1,2})?\s+[A-Z][a-z]{2}$", due):
+            due = "due " + due
+        bits = [r["code"], r["owner"] or "owner TBD", r["task"], due]
         s = " | ".join(b for b in bits if b)
         if r["status"] not in ("OPEN", ""):
             s += f"  [{r['status']}{' ' + r['updated'] if r['updated'] else ''}]"
@@ -129,15 +132,34 @@ class TaskList:
 
     def chase_for(self, group_name):
         today = datetime.now().strftime("%d %b")
-        late = [r for r in self.open_items(group_name) if not r["updated"].startswith(today)]
+        late = [r for r in self.open_items(group_name) if not r["updated"].startswith(today) and r["status"] != "HOLD"]
         if not late:
             return ""
         return ("Reminder: no update yet today on\n" + "\n".join(f"{r['code']} ({r['owner'] or 'owner TBD'}) {r['task'][:60]}" for r in late) +
                 "\nPlease reply with the code and status.")
 
+    def decisions(self):
+        """Items that need the owner: no owner, a proposed owner, duplicates, or on hold for his call."""
+        out = []
+        for r in self.open_items():
+            why = []
+            if not r["owner"] or r["owner"].lower() in ("tbd", "owner tbd") or r["owner"].startswith("("):
+                why.append("no owner")
+            elif "proposed" in r["owner"].lower():
+                why.append("confirm owner " + r["owner"].replace("(proposed)", "").strip())
+            if "needs one owner" in r["note"]:
+                why.append(r["note"])
+            if r["status"] == "HOLD":
+                why.append("on hold")
+            if why:
+                out.append(f"{r['code']} {r['task'][:50]}: {', '.join(why)}")
+        return out
+
     def summary(self, limit=80):
         today = datetime.now().strftime("%d %b")
         done_today = [r for r in self.rows if r["status"] == "DONE" and r["updated"].startswith(today)]
         lines = [self.line(r) + (f"  ({r['group']})" if r["group"] else "") for r in self.open_items()[:limit]]
+        dec = self.decisions()
         return ("Open coded items:\n" + ("\n".join(lines) or "(none)") +
-                ("\nClosed today: " + ", ".join(r["code"] for r in done_today) if done_today else ""))
+                ("\nClosed today: " + ", ".join(r["code"] for r in done_today) if done_today else "") +
+                ("\nNeeds Anirag's decision:\n" + "\n".join(dec[:40]) if dec else ""))
