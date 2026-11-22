@@ -62,6 +62,9 @@ class Middleman:
             if k in self.mm:
                 brain_cfg[k] = self.mm[k]
         self.brain = Brain(brain_cfg)
+        self.brains = {"default": self.brain}
+        self.routes_cfg = config.get("routes", [])
+        self.route_of = {}  # chat key (phone or group id) -> route dict
         self.batch_seconds = int(self.mm.get("batch_seconds", 45))
         self.cap_hour = int(self.mm.get("max_ai_calls_per_hour", 20))
         self.cap_day = int(self.mm.get("max_ai_calls_per_day", 150))
@@ -86,12 +89,16 @@ class Middleman:
         is_group = "@g.us" in chat
         if is_group and chat not in groups:
             return
+        route = self.route_of.get(chat if is_group else sender, {})
+        if route.get("bot") == "ignore":
+            return
         if not is_group:
             if own and own in (sender, wa._number(chat)):
                 sender = own  # message to yourself
             elif str(m.get("direction", "inbound")).lower() not in ("in", "inbound", "incoming"):
                 return  # your own messages to other people
-        if sender not in self.people and not (is_group and self.mm.get("group_everyone", False)):
+        everyone = route.get("everyone", self.mm.get("group_everyone", False))
+        if sender not in self.people and not (is_group and everyone):
             return
         self.stats["seen"] += 1
         key = chat if is_group else sender
@@ -101,7 +108,8 @@ class Middleman:
             if not worth_forwarding(text, m.get("kind", "text")):
                 self.stats["dropped"] += 1
                 return
-            p = self.pending.setdefault(key, {"reply_to": key, "lines": [], "first": time.time(), "group": is_group})
+            p = self.pending.setdefault(key, {"reply_to": key, "lines": [], "first": time.time(), "group": is_group,
+                                              "route": route})
             p["lines"].append(f"{who}: {text}")
             p["last"] = time.time()
 
@@ -128,7 +136,25 @@ class Middleman:
             self.cap_warned = False
         return len(self.calls) < self.cap_hour and self.stats["ai_calls"] < self.cap_day
 
-    def _briefing(self):
+    def _brain_for(self, name):
+        """name: None/'default' = middleman brain, 'grok', 'claude', or 'online' (Groq/Gemini settings)."""
+        name = name or "default"
+        if name not in self.brains:
+            cfg = dict(self.config)
+            if name == "grok":
+                cfg.update(brain="online", online_url="https://api.x.ai/v1", online_key_env="XAI_API_KEY",
+                           online_model=self.mm.get("online_model", "grok-4-fast"))
+            else:
+                cfg["brain"] = name
+            self.brains[name] = Brain(cfg)
+        return self.brains[name]
+
+    def _briefing(self, bot="ceo"):
+        if bot != "ceo" and bot in self.team.agents:
+            # a department head: its own brief and data from lucent-kb, plus WhatsApp rules
+            return (self.team._system(self.team.agents[bot]) +
+                    "\nYou are answering on WhatsApp: reply short (max 6 lines), in the language used. "
+                    "If no answer is needed, reply exactly NO_REPLY.")
         ceo = self.team.agents["ceo"]
         kb = self.team.kb
         brief = ""
@@ -163,14 +189,20 @@ class Middleman:
         recent = "\n".join(list(self.history[p["reply_to"]])[:-len(p["lines"])] or ["(none)"])
         prompt = (f"{'Group chat' if p['group'] else 'Private chat'}. Earlier messages:\n{recent}\n\n"
                   f"New message(s):\n" + "\n".join(p["lines"]) + "\n\nYour reply:")
+        route = p.get("route") or {}
+        bot = route.get("bot", "ceo")
+        brain = self._brain_for(route.get("brain"))
         self.calls.append(time.time())
         self.stats["ai_calls"] += 1
         try:
-            reply = self.brain.think(self._briefing(), prompt, int(self.mm.get("max_reply_tokens", 400)))
+            if bot == "team":  # whole leadership team discusses (several AI calls, costs more)
+                reply = self.team.handle("\n".join(p["lines"]))
+            else:
+                reply = brain.think(self._briefing(bot), prompt, int(self.mm.get("max_reply_tokens", 400)))
         except Exception as e:
             print("CEO call failed:", e)
             return
-        self.team.memory.log("ceo", "whatsapp", f"IN: {' | '.join(p['lines'])}\nOUT: {reply}")
+        self.team.memory.log(bot if bot in self.team.agents else "ceo", "whatsapp", f"IN: {' | '.join(p['lines'])}\nOUT: {reply}")
         if reply.strip().upper().startswith("NO_REPLY"):
             print("CEO chose not to reply.")
             return
@@ -192,11 +224,28 @@ class Middleman:
         own = wa._own_phone(wm.get("account_id"))
         groups = set()
         wanted = self.config["whatsapp"].get("allowed_groups") or []
-        if wanted:
+        group_routes = [r for r in self.routes_cfg if not str(r.get("chat", "")).isdigit()]
+        for r in self.routes_cfg:
+            if str(r.get("chat", "")).isdigit():
+                phone = str(r["chat"])
+                self.route_of[phone] = r
+                if r.get("bot") != "ignore":
+                    self.people.add(phone)
+        if wanted or group_routes:
             for g in wa.list_groups(wm.get("account_id")):
-                if any(w.lower() in str(g.get("name", "")).lower() for w in wanted):
-                    groups.add(g["chat"])
-                    print("Group:", g.get("name"))
+                name = str(g.get("name", "")).lower()
+                r = next((r for r in group_routes if str(r["chat"]).lower() in name), None)
+                if r:
+                    self.route_of[g["chat"]] = r
+                    if r.get("bot") == "ignore":
+                        continue
+                elif not any(w.lower() in name for w in wanted):
+                    continue
+                groups.add(g["chat"])
+                print(f"Group: {g.get('name')}  ->  {(r or {}).get('bot', 'ceo')}")
+        for phone, r in self.route_of.items():
+            if phone.isdigit():
+                print(f"Person: {self.names.get(phone, phone)}  ->  {r.get('bot', 'ceo')}")
         threading.Thread(target=self.flush_loop, daemon=True).start()
         print(f"Middleman ready. People: {len(self.people)}, groups: {len(groups)}, "
               f"Grok caps: {self.cap_hour}/hour, {self.cap_day}/day.")

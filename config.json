@@ -46,5 +46,7 @@
     "history_messages": 10,
     "group_everyone": false,
     "full_ceo_notes": false
-  }
+  },
+  "_routes_help": "Which bot answers which group or person (middleman). chat = part of a group name, or a phone number (91...). bot = ceo, cos, cfo, coo, qa, eng, scm, fd, ra, bd, dom, hr, team (whole team, costs more) or ignore. brain (optional) = grok, claude or default. everyone = true lets anyone in that group talk to the bot. First match wins; anything not listed goes to the CEO.",
+  "routes": []
 }

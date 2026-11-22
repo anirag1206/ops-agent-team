@@ -100,6 +100,25 @@ To send task messages without approving each one, put `"staff_messages": "auto"`
 - **How often it checks:** `poll_seconds` (default 30). Each allowed person or group is one check, so 3 chats every 30 s is about 8,600 WhatsMCP calls a day. That needs the WhatsMCP **Pro** plan (unlimited API calls). Cheaper alternative: **Starter** plan with `"receive": "webhook"`, where WhatsMCP pushes messages instantly and nothing polls (needs a tunnel, see Part 2).
 - Turn off your other bot's own WhatsApp checking, otherwise you pay twice.
 
+## Part 2e: Which group or person goes to which bot
+
+Add a `routes` list to `config.local.json`. Each line says: messages from this chat go to this bot.
+
+```json
+"routes": [
+  {"chat": "Production", "bot": "coo", "brain": "grok"},
+  {"chat": "QA Team", "bot": "qa", "everyone": true},
+  {"chat": "Family", "bot": "ignore"},
+  {"chat": "919812345678", "bot": "eng"}
+]
+```
+
+- **chat:** part of a WhatsApp group name (see `python run.py whatsmcp-groups`), or a phone number with country code.
+- **bot:** `ceo` (default), a department head (`cfo`, `coo`, `qa`, `eng`, `scm`, `fd`, `ra`, `bd`, `dom`, `hr`, `cos`), `team` (full leadership discussion, slower and costs more) or `ignore` (never read).
+- **brain:** optional. `grok` (xAI) or `claude`. Leave it out to use the middleman's normal brain.
+- **everyone:** optional, groups only. `true` lets anyone in that group ask; otherwise only people in `allowed_numbers`.
+- The first matching line wins. Anything not listed goes to the CEO, and only from allowed people. At start the middleman prints each group and person with its bot, so you can check.
+
 ## Part 3: Knowledge base, Graphify and GitHub
 
 - **lucent-kb**: every agent automatically reads the company snapshot, `decisions.md`, its own `departments/*.md` brief and its `data/*.md` snapshots. The CEO, Chief of Staff and HR also read `people.md`. Which files each agent reads is listed in `team.json` (`kb_brief`, `kb_data`).
