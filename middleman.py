@@ -387,7 +387,8 @@ class Middleman:
                      "The owner approves each message before it is sent, so never say it was already sent.")
         groups_list = "\n".join(f"- {n}" for n in sorted(self.postable_groups().values())) or "- none"
         people = "\n".join(f"- {p['name']}: {self.team.agents.get(p.get('role'), {}).get('title', p.get('role') or 'role not set')}"
-                           for p in (self.team.staff.people if self.team.staff else [])[:80]) or "- none listed yet"
+                           + (f" (in {p['group']})" if p.get("group") else "")
+                           for p in (self.team.staff.people if self.team.staff else [])[:150]) or "- none listed yet"
         return (
             f"You are the CEO of {self.team.company}, working on WhatsApp with the owner "
             f"({self.team.owner}) and plant staff. You learn the business, ask staff short questions, "

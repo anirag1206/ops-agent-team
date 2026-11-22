@@ -280,17 +280,86 @@ def _find_groups(obj, out):
             _find_groups(v, out)
 
 
-def group_names(account_id):
-    """{group id: name} from WhatsMCP (MCP wa_list_groups) plus your own labels file."""
-    names = {}
-    try:
+_MCP = {}
+
+
+def _mcp_session():
+    if "session" not in _MCP:
         init, session = _mcp("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                             "clientInfo": {"name": "ops-agent-team", "version": "1"}})
         try:
             _mcp("notifications/initialized", {}, session, rid=None)
         except Exception:
             pass
-        res, _ = _mcp("tools/call", {"name": "wa_list_groups", "arguments": {"account_id": account_id}}, session, 2)
+        _MCP["session"] = session
+    return _MCP["session"]
+
+
+def mcp_tool(name, arguments):
+    """Call one WhatsMCP MCP tool and return its 'result'."""
+    res, _ = _mcp("tools/call", {"name": name, "arguments": arguments}, _mcp_session(), 2)
+    if res.get("error"):
+        raise RuntimeError(res["error"].get("message") or res["error"])
+    return res.get("result", {})
+
+
+def _tool_args(name):
+    """The argument names a WhatsMCP tool expects (from tools/list)."""
+    if "tools" not in _MCP:
+        res, _ = _mcp("tools/list", {}, _mcp_session(), 3)
+        _MCP["tools"] = {t["name"]: t.get("inputSchema", {}).get("properties", {}) for t in res.get("result", {}).get("tools", [])}
+    return list(_MCP["tools"].get(name, {}))
+
+
+def group_members(account_id, jid):
+    """{phone: name} of EVERY member of a group (MCP wa_list_group_members). Names come from your
+    WhatsApp contacts where WhatsMCP knows them. Members hidden behind WhatsApp privacy ids are skipped."""
+    args = {"account_id": account_id}
+    key = next((a for a in _tool_args("wa_list_group_members") if a != "account_id"), "chat")
+    args[key] = jid
+    result = mcp_tool("wa_list_group_members", args)
+    if os.environ.get("DEBUG_WAMCP"):
+        print("members answer:", json.dumps(result)[:800])
+    found = {}
+
+    def walk(o):
+        if isinstance(o, str) and o.strip()[:1] in "[{":
+            try:
+                o = json.loads(o)
+            except ValueError:
+                return
+        if isinstance(o, dict):
+            phone = ""
+            for k in ("phone", "number", "jid", "id", "participant"):
+                v = str(o.get(k) or "")
+                if v and "@g.us" not in v and "@lid" not in v and 10 <= len(_number(v)) <= 15:
+                    phone = _number(v)
+                    break
+            if phone:
+                found[phone] = next((o[k] for k in ("name", "push_name", "display_name", "contact_name", "notify")
+                                     if isinstance(o.get(k), str) and o.get(k)), "")
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(result)
+    try:  # names from your saved contacts
+        book = _call("GET", f"/accounts/{account_id}/contacts?limit=1000").get("contacts", [])
+        names = {_number(c.get("phone") or c.get("jid") or c.get("chat")): c.get("name") or c.get("push_name") or ""
+                 for c in book if isinstance(c, dict)}
+        for ph in found:
+            found[ph] = found[ph] or names.get(ph, "")
+    except Exception:
+        pass
+    return found
+
+
+def group_names(account_id):
+    """{group id: name} from WhatsMCP (MCP wa_list_groups) plus your own labels file."""
+    names = {}
+    try:
+        res = {"result": mcp_tool("wa_list_groups", {"account_id": account_id})}
         _find_groups(res.get("result", {}), names)
         if not names and os.environ.get("DEBUG_WAMCP"):
             print("MCP answer:", json.dumps(res)[:1500])
@@ -320,12 +389,17 @@ def group_matches(pattern, g):
 
 
 def group_senders(account_id, name_part, own_phone=""):
-    """Everyone who has written in the group (WhatsMCP has no member list, only messages)."""
+    """Every member of the group (full member list from WhatsMCP), plus the names people use when they write."""
     from urllib.parse import quote
     groups = [g for g in list_groups(account_id) if group_matches(name_part, g)]
     if not groups:
         raise RuntimeError(f"No WhatsApp group with '{name_part}' in its name. Run: python run.py whatsmcp-groups")
     g = groups[0]
+    people = {}
+    try:
+        people = {ph: n for ph, n in group_members(account_id, g["chat"]).items() if ph != own_phone}
+    except Exception as e:
+        print(f"  (full member list not available: {e}; using people who have written instead)")
     jid = quote(g["chat"], safe="")
     try:  # ask WhatsApp for older messages too, so more members show up
         _call("POST", f"/accounts/{account_id}/chats/{jid}/history", {"count": 500})
@@ -333,16 +407,16 @@ def group_senders(account_id, name_part, own_phone=""):
     except Exception:
         pass
     msgs = _call("GET", f"/accounts/{account_id}/chats/{jid}?limit=200").get("messages", [])
-    people = {}
     for m in msgs:
         phone = _number(m.get("peer"))
-        if phone and phone != own_phone and len(phone) >= 10:
-            people.setdefault(phone, m.get("sender_name") or "")
+        if phone and phone != own_phone and 10 <= len(phone) <= 15:
+            people[phone] = people.get(phone) or m.get("sender_name") or ""
     return g.get("name", name_part), people
 
 
 def add_group_to_contacts(path, account_id, name_part, role="", own_phone=""):
     gname, people = group_senders(account_id, name_part, own_phone)
+    gname = gname or name_part
     data = {"people": []}
     if os.path.exists(path):
         with open(path, encoding="utf-8-sig") as f:
@@ -352,8 +426,14 @@ def add_group_to_contacts(path, account_id, name_part, role="", own_phone=""):
     added = []
     for phone, name in people.items():
         if phone not in known:
-            data["people"].append({"name": name or phone, "role": role, "phone": phone})
+            data["people"].append({"name": name or phone, "role": role, "phone": phone, "group": gname})
             added.append(f"{name or '?'} ({phone})")
+        else:  # remember which groups a known person is in
+            for p in data["people"]:
+                if "".join(ch for ch in str(p.get("phone", "")) if ch.isdigit()) == phone:
+                    gs = [x for x in str(p.get("group", "")).split(" | ") if x]
+                    if gname not in gs:
+                        p["group"] = " | ".join(gs + [gname])
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     return gname, added

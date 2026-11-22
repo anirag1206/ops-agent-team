@@ -137,15 +137,17 @@ def main():
         total = 0
         for target in targets:
             try:
+                route = next((r for r in config.get("routes", []) if r.get("chat") == target), {})
+                role = args[2] if len(args) > 2 else (route.get("bot") if route.get("bot") not in (None, "ceo", "team", "ignore") else "")
                 gname, added = whatsmcp_bridge.add_group_to_contacts(
                     os.path.join(HERE, "contacts.local.json"), config["whatsmcp"]["account_id"],
-                    target, args[2] if len(args) > 2 else "", own)
+                    target, role, own)
             except Exception as e:
                 print(f"{target}: {e}")
                 continue
             total += len(added)
             print(f"\nGroup '{gname or target}': added {len(added)} new people")
-            print("\n".join("  " + a for a in added) or "  (nobody new; only people who have written in the group can be found)")
+            print("\n".join("  " + a for a in added) or "  (nobody new)")
         if len(targets) > 1:
             print(f"\nChecked {len(targets)} internal groups, added {total} people in total.")
         print("Open contacts.local.json in Notepad, check names, and fill in each person's role.")
