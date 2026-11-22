@@ -97,7 +97,8 @@ To send task messages without approving each one, put `"staff_messages": "auto"`
 
 - **CEO AI:** Grok through the xAI API by default (`middleman` block in `config.json`). Save your key as `setx XAI_API_KEY "xai-..."`. Check console.x.ai for the cheapest current Grok model name and put it in `online_model`. Claude works too: set `"brain": "claude"` in the middleman block.
 - **Caps:** `max_ai_calls_per_hour` and `max_ai_calls_per_day` stop spending; you get one WhatsApp note when the cap is hit.
-- **How often it checks:** `poll_seconds` (default 30). Each allowed person or group is one check, so 3 chats every 30 s is about 8,600 WhatsMCP calls a day. That needs the WhatsMCP **Pro** plan (unlimited API calls). Cheaper alternative: **Starter** plan with `"receive": "webhook"`, where WhatsMCP pushes messages instantly and nothing polls (needs a tunnel, see Part 2).
+- **How often it checks:** `poll_seconds` (default 30). Each check is ONE WhatsMCP call that fetches the newest messages from all chats; the middleman then keeps only your listed people and groups. 30 s is about 2,900 calls a day. Your private chats with other people are never passed on.
+- **Your control chat:** WhatsApp's "Message yourself" chat. Type instructions there (for example "Follow up with Komal"), `remember: ...`, `send 1`; Grok's answers and drafts come back there. If it does not react, run `set DEBUG_WAMCP=1` before starting, type a message to yourself, and look for the "Ignored your message to ..." line: put that id in `"self_chat"` in the middleman block.
 - Turn off your other bot's own WhatsApp checking, otherwise you pay twice.
 
 ## Part 2e: Which group or person goes to which bot

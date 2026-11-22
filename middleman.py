@@ -79,6 +79,9 @@ class Middleman:
         self.stats = {"seen": 0, "dropped": 0, "ai_calls": 0, "replies": 0, "day": datetime.now().date()}
         self.cap_warned = False
         self.lock = threading.Lock()
+        sc = self.mm.get("self_chat") or []
+        self.self_chats = set([sc] if isinstance(sc, str) else sc)
+        self.hinted = set()
 
     # ---------- 1-3: receive, filter, batch ----------
     def on_message(self, m, groups, own):
@@ -98,9 +101,15 @@ class Middleman:
         if route.get("bot") == "ignore":
             return
         if not is_group:
-            if own and own in (sender, wa._number(chat)):
-                sender = own  # message to yourself
-            elif str(m.get("direction", "inbound")).lower() not in ("in", "inbound", "incoming"):
+            outbound = str(m.get("direction", "inbound")).lower() not in ("in", "inbound", "incoming")
+            if (own and wa._number(chat) == own) or chat in self.self_chats:
+                sender = own or sender  # your "Message yourself" chat: your control channel
+            elif outbound:
+                if wa._number(chat) not in self.people and chat not in self.hinted:
+                    self.hinted.add(chat)
+                    if os.environ.get("DEBUG_WAMCP"):
+                        print(f"(Ignored your message to {chat}. If this is your 'Message yourself' chat, add "
+                              f"\"self_chat\": \"{chat}\" to the middleman block in config.local.json.)")
                 return  # your own messages to other people
         everyone = route.get("everyone", self.mm.get("group_everyone", False))
         if sender not in self.people and not (is_group and everyone):
@@ -299,6 +308,9 @@ class Middleman:
     def run(self):
         wm = self.config["whatsmcp"]
         own = wa._own_phone(wm.get("account_id"))
+        if own:  # the linked number is yours: your self-chat is the control channel
+            self.owner.append(own) if own not in self.owner else None
+            self.people.add(own)
         groups = set()
         wanted = self.config["whatsapp"].get("allowed_groups") or []
         is_phone = lambda c: str(c).isdigit() and len(str(c)) <= 15  # longer digit strings are group ids
@@ -335,36 +347,47 @@ class Middleman:
             self._poll(groups, own, int(self.mm.get("poll_seconds", wm.get("poll_seconds", 30))))
 
     def _poll(self, groups, own, every):
-        chats = sorted(self.people | groups)
+        """ONE WhatsMCP call per check: the newest messages from all chats, filtered here for free."""
         here = os.path.dirname(os.path.abspath(__file__))
-        cursor_file = os.path.join(here, "whatsmcp_cursors.json")
-        cursors = json.load(open(cursor_file)) if os.path.exists(cursor_file) else {}
-        for chat in chats:
-            if chat not in cursors:  # skip old messages the first time
-                c = 0
+        cursor_file = os.path.join(here, "whatsmcp_stream_cursor.json")
+        cursor = json.load(open(cursor_file)).get("cursor") if os.path.exists(cursor_file) else None
+        if cursor is None:
+            cursor = self._latest_cursor()
+        print(f"Checking all chats with one call every {every} s (about {86400 // max(every, 1)} WhatsMCP calls a day). "
+              "Only the people and groups in your settings are passed on. Ctrl+C to stop.")
+        seen = deque(maxlen=2000)
+        while True:
+            try:
                 while True:
-                    page = wa._call("GET", f"/messages?chat={quote(chat, safe='')}&after_cursor={c}&limit=200")
-                    c = page.get("next_cursor") or c
+                    page = wa._call("GET", f"/messages?after_cursor={cursor}&limit=100")
+                    for m in page.get("messages", []):
+                        if os.environ.get("DEBUG_WAMCP"):
+                            print("seen:", {k: m.get(k) for k in ("direction", "peer", "chat", "kind")},
+                                  (m.get("text") or "")[:40])
+                        if m.get("message_id") in seen:
+                            continue
+                        seen.append(m.get("message_id"))
+                        self.on_message(m, groups, own)
+                    cursor = page.get("next_cursor") or cursor
                     if not page.get("has_more"):
                         break
-                cursors[chat] = c
-        per_day = len(chats) * 86400 // max(every, 1)
-        print(f"Checking {len(chats)} chats every {every} s (about {per_day} WhatsMCP calls a day). Ctrl+C to stop.")
-        seen = set()
-        while True:
-            for chat in chats:
-                try:
-                    page = wa._call("GET", f"/messages?chat={quote(chat, safe='')}&after_cursor={cursors[chat]}&limit=50")
-                    for m in page.get("messages", []):
-                        if m.get("message_id") not in seen:
-                            seen.add(m.get("message_id"))
-                            self.on_message(m, groups, own)
-                    cursors[chat] = page.get("next_cursor") or cursors[chat]
-                except Exception as e:
-                    print(f"Check of {chat} failed:", e)
-            with open(cursor_file, "w") as f:
-                json.dump(cursors, f)
+                with open(cursor_file, "w") as f:
+                    json.dump({"cursor": cursor}, f)
+            except Exception as e:
+                print("WhatsMCP check failed:", e)
             time.sleep(every)
+
+    def _latest_cursor(self):
+        """First start: jump to the newest message so old chats are not answered."""
+        def has_after(c):
+            return bool(wa._call("GET", f"/messages?after_cursor={c}&limit=1").get("messages"))
+        lo, hi = 0, 1024
+        while has_after(hi):
+            lo, hi = hi, hi * 2
+        while hi - lo > 1:
+            mid = (lo + hi) // 2
+            lo, hi = (mid, hi) if has_after(mid) else (lo, mid)
+        return hi if not has_after(hi) else lo
 
     def _webhook(self, groups, own, port):
         mm = self
