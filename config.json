@@ -1,34 +1,72 @@
 {
-  "_help": "brain can be 'ollama' (free, runs on your PC), 'claude' (paid, smarter, needs an API key) or 'demo' (no AI at all, just to test the wiring).",
+  "_help": "brain can be 'ollama' (free, runs on your PC), 'online' (Groq or Gemini, free tiers, needs a key), 'claude' (paid, smarter, needs a key) or 'demo' (no AI, just to test the wiring).",
   "brain": "ollama",
-
   "ollama_url": "http://localhost:11434",
   "ollama_model": "qwen2.5:7b",
-  "ollama_context": 16384,
-
+  "ollama_context": 8192,
   "_kb_help": "Folder where your lucent-kb repository is cloned. Relative paths are from this folder.",
   "knowledge_base": "../lucent-kb",
-
+  "_online_help": "For brain 'online'. Groq: url https://api.groq.com/openai/v1, model llama-3.3-70b-versatile. Gemini: url https://generativelanguage.googleapis.com/v1beta/openai, model gemini-2.5-flash. Key in env ONLINE_AI_KEY.",
+  "online_url": "https://api.groq.com/openai/v1",
+  "online_model": "llama-3.3-70b-versatile",
   "claude_model": "claude-sonnet-5-5",
   "_claude_key_help": "Do NOT paste the key here. Set it as a Windows environment variable called ANTHROPIC_API_KEY.",
-
   "_whatsapp_provider_help": "'whatsmcp' = the WhatsMCP service you already use (default). 'meta' = Meta's official Cloud API directly.",
   "whatsapp_provider": "whatsmcp",
-
   "whatsmcp": {
     "_help": "API key goes in the environment variable WAMCP_KEY. account_id is shown in your WhatsMCP dashboard (or run: python run.py whatsmcp-accounts).",
     "account_id": "",
     "receive": "poll",
     "poll_seconds": 900
   },
-
   "whatsapp": {
     "_help": "allowed_numbers: ONLY these numbers can command the team, e.g. [\"919812345678\"]. Leave the rest empty unless you use provider 'meta'. Meta token goes in WHATSAPP_TOKEN.",
     "allowed_numbers": [],
     "port": 8000,
     "phone_number_id": "",
-    "verify_token": "choose-any-secret-word"
+    "verify_token": "choose-any-secret-word",
+    "_groups_help": "allowed_groups: part of the names of groups the team may read and reply in, e.g. [\"Production\"]. In those groups it only answers allowed numbers (and listed staff for done/update) whose message starts with group_trigger.",
+    "allowed_groups": [],
+    "group_trigger": "team"
   },
-
-  "daily_briefing_time": "09:00"
+  "daily_briefing_time": "09:00",
+  "_staff_help": "Staff messages: 'approve' = nothing is sent to staff until you reply 'send 3' / 'send all'. 'auto' = task messages go out straight away. Staff are listed in contacts.local.json.",
+  "staff_messages": "approve",
+  "_middleman_help": "For 'python run.py middleman': a free filter that watches WhatsApp and only calls the CEO AI (Grok via xAI) when a message needs it. brain 'online' + online_url https://api.x.ai/v1 = Grok; key in env XAI_API_KEY. Check console.x.ai for the cheapest current Grok model name. poll_seconds below 300 needs the WhatsMCP Pro plan (or use receive: webhook on Starter).",
+  "middleman": {
+    "brain": "online",
+    "online_url": "https://api.x.ai/v1",
+    "online_model": "grok-4-fast",
+    "online_key_env": "XAI_API_KEY",
+    "poll_seconds": 30,
+    "batch_seconds": 45,
+    "max_ai_calls_per_hour": 20,
+    "max_ai_calls_per_day": 150,
+    "max_reply_tokens": 400,
+    "history_messages": 10,
+    "group_everyone": false,
+    "full_ceo_notes": false,
+    "read_pictures": true,
+    "read_files": true,
+    "max_files_per_message": 4,
+    "max_staff_messages_per_day": 60
+  },
+  "_routes_help": "Which bot answers which group or person (middleman). chat = part of a group name, or a phone number (91...). bot = ceo, cos, cfo, coo, qa, eng, scm, fd, ra, bd, dom, hr, team (whole team, costs more) or ignore. brain (optional) = grok, claude or default. everyone = true lets anyone in that group talk to the bot. First match wins; anything not listed goes to the CEO.",
+  "routes": [],
+  "_email_help": "For the middleman: reads new emails (read only) and passes them to Grok; Grok's reply comes to you on WhatsApp. Gmail/Google Workspace: create an App password, then setx EMAIL_APP_PASSWORD \"...\". Put your address in user. skip_senders / always_read take parts of email addresses. Nothing is ever sent by email.",
+  "email": {
+    "enabled": false,
+    "user": "",
+    "imap_host": "imap.gmail.com",
+    "imap_port": 993,
+    "password_env": "EMAIL_APP_PASSWORD",
+    "folder": "INBOX",
+    "check_minutes": 5,
+    "max_per_check": 10,
+    "max_chars_per_email": 2000,
+    "read_pictures": true,
+    "skip_automatic": true,
+    "skip_senders": [],
+    "always_read": []
+  }
 }

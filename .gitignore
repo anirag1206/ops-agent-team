@@ -7,3 +7,11 @@ whatsmcp_cursor.txt
 # python
 __pycache__/
 *.pyc
+config.local.json
+contacts.local.json
+whatsmcp_cursors.json
+email_state.json
+group_names.local.json
+whatsmcp_stream_cursor.json
+grok_rules.local.md
+task_list.local.csv

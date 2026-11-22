@@ -17,12 +17,13 @@ from tools import TOOL_HELP, run_tool
 
 class Team:
     def __init__(self, team_file, brain, memory, kb=None):
-        with open(team_file, encoding="utf-8") as f:
+        with open(team_file, encoding="utf-8-sig") as f:
             data = json.load(f)
         self.company = data.get("company", "our company")
         self.owner = data.get("owner", "the owner")
         self.handoffs = data.get("handoffs", [])
         self.kb = kb
+        self.staff = None  # set in run.py when contacts.local.json exists
         self.agents = {a["id"]: a for a in data["agents"]}
         self.brain = brain
         self.memory = memory
@@ -173,7 +174,9 @@ class Team:
     def _save_actions(self, text):
         for owner, task, due in re.findall(r"ACTION:\s*([a-z]+)\s*\|\s*([^|\n]+)\|\s*([^\n]+)", text):
             if owner in self.agents:
-                self.memory.add_task(owner, task.strip(), due.strip())
+                tid = self.memory.add_task(owner, task.strip(), due.strip())
+                if self.staff:
+                    self.staff.draft_for_task(tid, owner, task.strip(), due.strip())
 
     def _clean(self, text):
         lines, actions = [], []

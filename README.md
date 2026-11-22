@@ -23,7 +23,12 @@ These are the same 12 departments as `lucent-kb/departments/`. The team follows 
 
 ---
 
-## Part 1: Get it running on Windows (about 20 minutes)
+## Part 1: Get it running on Windows
+
+**Easiest way (one click):** download [SETUP.bat](https://github.com/anirag1206/ops-agent-team/raw/main/SETUP.bat) and [setup_windows.ps1](https://github.com/anirag1206/ops-agent-team/raw/main/setup_windows.ps1) into the same folder (for example Downloads), then double-click **SETUP.bat**. It installs Python, Git and Ollama, downloads the free AI model (it picks a smaller one if your PC has under 16 GB memory), downloads the team and your knowledge base, and puts a **Leadership Team** icon on your desktop. Click Yes when Windows asks, and sign in to GitHub when asked. It takes 15 to 40 minutes, mostly the model download. You can run it again any time to update.
+
+**Or do it by hand** (about 20 minutes):
+
 
 1. **Install Python** from https://www.python.org/downloads/ . On the first screen tick **"Add python.exe to PATH"**.
 2. **Install Git** from https://git-scm.com/download/win (default options).
@@ -69,6 +74,77 @@ To get the newest snapshots after your other bots refresh lucent-kb, run `python
 
 The PC must stay on for the team to answer. The morning briefing is sent at `daily_briefing_time` (default 09:00).
 
+## Part 2b: Let the team message plant staff
+
+1. Quickest: `python run.py whatsmcp-groups` lists your WhatsApp groups, and `python run.py staff-from-group "Plant" coo` adds everyone who has written in that group to `contacts.local.json` (WhatsMCP shares no member list, so silent members are missed). Or copy `contacts.example.json` to `contacts.local.json` and list your people by hand: name, `role` (the agent id from `team.json`, e.g. `eng`, `qa`, `coo`) and WhatsApp number (`91` + number). This file stays on your PC and never goes to GitHub.
+2. When the CEO agent assigns an action item to a department that has a person listed, the team **drafts** a WhatsApp message to that person and shows it to you. **Nothing is sent until you reply** `send all`, `send 3` or `cancel 3`. Type `outbox` to read drafts in full.
+3. You can also write to someone through the team: `message Mehboob: please share today's press 4 status`. This is drafted the same way.
+4. Staff reply with `done 3`, `update 3: <news>` or `tasks`. Updates are saved to that department's memory and forwarded to you. Every other message from staff is ignored, so normal chats never get an automatic answer.
+
+To send task messages without approving each one, put `"staff_messages": "auto"` in `config.local.json`.
+
+**Use a separate WhatsApp number for the team.** If WhatsMCP is linked to your personal number, staff see the messages coming from you personally, and sending to many people from a personal number raises the chance that WhatsApp restricts it. A second SIM linked in WhatsMCP as "Lucent Leadership Team" avoids both, and you then command the team from your own phone like any other chat.
+
+## Part 2c: Only certain people, and replies in a group
+
+- The team reads **only** the chats of numbers in `allowed_numbers` (plus listed staff). It never downloads your other conversations.
+- To let it work in a group, add part of the group name to `allowed_groups`, e.g. `["Production"]`. It then reads only that group, and answers only when an allowed person starts a message with **team**, e.g. *"team, what is pending for packing today?"*. The answer goes to the group. Everything else in the group is ignored.
+- `python run.py whatsmcp-groups` shows the exact group names. (Listing groups reads only their names, not their messages.)
+
+## Part 2d: Cheap middleman in front of an expensive CEO bot (Grok)
+
+`python run.py middleman` watches WhatsApp every few seconds **without any AI**, drops what needs no CEO ("ok", 👍, "thanks", stickers, people and groups not on your lists), groups quick messages from one person into one question, and only then calls the CEO AI once. The reply is posted back in the same chat or group. The CEO AI can answer `NO_REPLY` when nothing needs saying.
+
+- **CEO AI:** Grok through the xAI API by default (`middleman` block in `config.json`). Save your key as `setx XAI_API_KEY "xai-..."`. Check console.x.ai for the cheapest current Grok model name and put it in `online_model`. Claude works too: set `"brain": "claude"` in the middleman block.
+- **Caps:** `max_ai_calls_per_hour` and `max_ai_calls_per_day` stop spending; you get one WhatsApp note when the cap is hit.
+- **How often it checks:** `poll_seconds` (default 30). Each check is ONE WhatsMCP call that fetches the newest messages from all chats; the middleman then keeps only your listed people and groups. 30 s is about 2,900 calls a day. Your private chats with other people are never passed on.
+- **Your control chat:** WhatsApp's "Message yourself" chat. Type instructions there (for example "Follow up with Komal"), `remember: ...`, `send 1`; Grok's answers and drafts come back there. If it does not react, type `#selfchat` to yourself while the middleman runs; the window prints your self-chat id to put in `"self_chat"` in the middleman block. Messages from chats not on your lists are dropped at once and never shown, saved or sent, even in debug mode.
+- Turn off your other bot's own WhatsApp checking, otherwise you pay twice.
+
+## Part 2e: Which group or person goes to which bot
+
+Add a `routes` list to `config.local.json`. Each line says: messages from this chat go to this bot.
+
+```json
+"routes": [
+  {"chat": "Production", "bot": "coo", "brain": "grok"},
+  {"chat": "QA Team", "bot": "qa", "everyone": true},
+  {"chat": "Family", "bot": "ignore"},
+  {"chat": "919812345678", "bot": "eng"}
+]
+```
+
+- **chat:** part of a WhatsApp group name, or the group's id (both shown by `python run.py whatsmcp-groups`), or a phone number with country code. If a group shows `(no name)`, use its id, or give it a label in `group_names.local.json`: `{"120363...@g.us": "QA Team"}`.
+- **bot:** `ceo` (default), a department head (`cfo`, `coo`, `qa`, `eng`, `scm`, `fd`, `ra`, `bd`, `dom`, `hr`, `cos`), `team` (full leadership discussion, slower and costs more) or `ignore` (never read).
+- **brain:** optional. `grok` (xAI) or `claude`. Leave it out to use the middleman's normal brain.
+- **everyone:** optional, groups only. `true` lets anyone in that group ask; otherwise only people in `allowed_numbers`.
+- The first matching line wins. Anything not listed goes to the CEO, and only from allowed people. At start the middleman prints each group and person with its bot, so you can check.
+
+## Part 2f: Pictures, files and email go to Grok too
+
+The middleman stays a simple messenger: it reads, passes to Grok, and posts Grok's answer back. Grok does the thinking.
+
+- **WhatsApp pictures:** sent to Grok with the message, so Grok can look at them (labels, BMR pages, machine photos). Your Grok model must accept pictures; if replies say it can't see images, pick a vision-capable model on console.x.ai.
+- **WhatsApp files:** Word, Excel, text and PDF files are turned into text on your PC for free and that text goes to Grok. PDF needs `pip install pypdf` (the setup script installs it). Scanned PDFs have no text; send a photo instead.
+- **Email:** every 5 minutes the middleman reads new mail (read only: nothing is marked read, moved, deleted or sent). Newsletters and automatic mails are skipped for free. New emails go to Grok in one call, and Grok tells you on WhatsApp what matters, which department it is for, and what to do. You answer Grok on WhatsApp as normal.
+  1. Gmail / Google Workspace: turn on 2-Step Verification, then make an App password at https://myaccount.google.com/apppasswords (a Workspace admin may need to allow this).
+  2. `setx EMAIL_APP_PASSWORD "the 16 letters"` and open a new Command Prompt.
+  3. In `config.local.json` add `"email": {"enabled": true, "user": "you@yourcompany.com"}`.
+  4. `python run.py email-test`, then start the middleman.
+  - `skip_senders` and `always_read` (parts of addresses) fine-tune the free filter.
+- **Teaching:** Grok through the API does not remember past chats by itself. Send `remember: emails from xyz.com are Regulatory` on WhatsApp; the middleman saves it (no AI cost) and includes it every time it briefs Grok. `facts` shows the list. `send N` / `cancel N` approve staff messages, as in Part 2b.
+
+- **Grok messages employees:** everyone in `contacts.local.json` is listed in Grok's briefing. Grok can write `MESSAGE <name>: <text>`; the middleman turns that into a draft and asks you privately on WhatsApp. Nothing reaches the employee until you reply `send all` or `send 3` (`cancel 3` drops it). With `"staff_messages": "auto"` in config.local.json, Grok's messages go straight to the employee and you get a copy in your self-chat; `max_staff_messages_per_day` (default 60) caps them. Grok can only message people in contacts.local.json, never groups or customers. Fill the contacts quickly with `python run.py staff-from-group all`, which collects everyone who has written in your internal groups (routes with `"everyone": true`); then open `contacts.local.json` and set each person's role.
+
+- **Standing rules:** put your rules, open tasks and way of working in `grok_rules.local.md` (private, never uploaded). Grok reads it with every message.
+- **Client groups:** list parts of their names in `whatsapp.read_only_groups`. The middleman reads them (they show in the evening report) but never posts there.
+- **Schedule:** `middleman.schedule` runs jobs at set times, e.g. `{"time": "10:00", "to": ["DRA Daily Work"], "task": "Post today's coded task list"}` for a group, or `"to": "owner"` for a report to your self-chat. Each job is one Grok call per group and counts toward the caps.
+- **Owner notices** (drafts, copies of messages Grok sent, limits, reports) go only to the linked number's own chat, never to other allowed numbers.
+
+- **Talking to Grok from your self-chat:** anything you type goes to Grok, which can answer you, post in an internal group (`GROUP <name>: ...`) or message one employee (`MESSAGE <name>: ...`). The middleman checks every target: client/read-only groups and unknown or ambiguous names are refused and you are told why. Free commands that skip Grok: `help`, `groups`, `staff`, `outbox`, `send all`, `send 3`, `cancel 3`, `remember: ...`, `facts`.
+
+- **Coded task list (D1, B1 ...):** kept in `task_list.local.csv` (opens in Excel). Staff replies in a listed group such as `D22 DONE`, `D10 under process` or `D25 need GMP` update it automatically (no Grok call for pure status replies). In your self-chat: `tasks` shows the open list, `tasks:` followed by pasted lines adds or updates items, `done D5` / `drop D5`. `middleman.task_groups` maps code letters to groups (`{"D": "DRA Daily Work"}`). Schedule jobs with `"do": "post_tasks"` post every open item of that group, and `"do": "chase"` lists the items without an update today; both are built from the list, without AI.
+
 ## Part 3: Knowledge base, Graphify and GitHub
 
 - **lucent-kb**: every agent automatically reads the company snapshot, `decisions.md`, its own `departments/*.md` brief and its `data/*.md` snapshots. The CEO, Chief of Staff and HR also read `people.md`. Which files each agent reads is listed in `team.json` (`kb_brief`, `kb_data`).
@@ -80,6 +156,8 @@ The PC must stay on for the team to answer. The morning briefing is sent at `dai
 Set the environment variable `ANTHROPIC_API_KEY`, then change `"brain": "ollama"` to `"brain": "claude"` in `config.json`. Each agent reads about 3,000 to 4,000 tokens of knowledge base, and one discussion makes 4 to 10 AI calls, so it costs roughly a few rupees per question.
 
 ## Customise
+
+- **Your own settings** (which brain, model, WhatsMCP account, allowed numbers) go in `config.local.json` next to `config.json`. Only write the lines you change, for example `{"brain": "claude", "whatsapp": {"allowed_numbers": ["919812345678"]}}`. Updates never overwrite this file.
 
 - **Change a role or reporting line:** edit `team.json`. Each block has an `id`, a `title`, who it `reports_to`, its `focus`, the knowledge base files it reads, and `keywords` the Chief of Staff uses for routing. `handoffs` lists who sends what to whom (copied from `kb_model.py`).
 - **Memory:** the team's own memory (facts you teach it, action items, discussion log) is in `team_memory.db`. Delete it to start fresh. It never writes to lucent-kb.
@@ -103,6 +181,9 @@ Set the environment variable `ANTHROPIC_API_KEY`, then change `"brain": "ollama"
 | `memory.py` | the team's own memory, facts and action items |
 | `tools.py` | Graphify, knowledge base and GitHub lookups |
 | `whatsmcp_bridge.py` | WhatsApp through WhatsMCP (default) |
+| `middleman.py` | free WhatsApp filter that calls the CEO AI (Grok) only when needed |
+| `staff.py` | drafts, approvals and replies for messages to plant staff |
+| `contacts.example.json` | template for your private staff list |
 | `whatsapp_bridge.py` | commands, morning briefing, and Meta's direct API (alternative) |
 | `run.py` | starts everything |
 

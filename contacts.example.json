@@ -1,0 +1,15 @@
+{
+  "_help": "Copy this file to contacts.local.json and put in real names and WhatsApp numbers (91 + number, no + or spaces). role = agent id from team.json. contacts.local.json never goes to GitHub.",
+  "people": [
+    {
+      "name": "Example Engineer",
+      "role": "eng",
+      "phone": "910000000001"
+    },
+    {
+      "name": "Example QA Head",
+      "role": "qa",
+      "phone": "910000000002"
+    }
+  ]
+}

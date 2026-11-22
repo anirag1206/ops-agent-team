@@ -4,6 +4,7 @@ Three things are remembered:
   facts  -> things you tell the team to remember ("remember: our MOQ is 50,000 tabs")
   log    -> everything each agent said, so they recall past discussions
   tasks  -> action items the CEO assigned, with owner, due date and status
+  outbox -> WhatsApp messages to staff, waiting for your OK
 """
 import sqlite3
 from datetime import datetime
@@ -18,6 +19,8 @@ class Memory:
             CREATE TABLE IF NOT EXISTS log   (id INTEGER PRIMARY KEY, at TEXT, agent TEXT, topic TEXT, text TEXT);
             CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, at TEXT, owner TEXT, task TEXT,
                                               due TEXT, status TEXT DEFAULT 'open');
+            CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, task_id INTEGER, name TEXT, phone TEXT,
+                                               text TEXT, status TEXT DEFAULT 'pending', at TEXT);
             """
         )
 
@@ -55,10 +58,14 @@ class Memory:
 
     # tasks
     def add_task(self, owner, task, due):
-        self.db.execute(
+        cur = self.db.execute(
             "INSERT INTO tasks(at, owner, task, due) VALUES (?, ?, ?, ?)", (self._now(), owner, task, due)
         )
         self.db.commit()
+        return cur.lastrowid
+
+    def task(self, task_id):
+        return self.db.execute("SELECT id, owner, task, due, status FROM tasks WHERE id=?", (task_id,)).fetchone()
 
     def open_tasks(self, owner=None):
         q = "SELECT id, owner, task, due, at FROM tasks WHERE status='open'"
@@ -72,3 +79,18 @@ class Memory:
         cur = self.db.execute("UPDATE tasks SET status='done' WHERE id=?", (task_id,))
         self.db.commit()
         return cur.rowcount > 0
+
+    # outbox: WhatsApp messages to staff, waiting for the owner's OK
+    def add_outbox(self, task_id, name, phone, text):
+        cur = self.db.execute("INSERT INTO outbox(task_id, name, phone, text, at) VALUES (?, ?, ?, ?, ?)",
+                              (task_id, name, phone, text, self._now()))
+        self.db.commit()
+        return cur.lastrowid
+
+    def outbox(self, status="pending"):
+        return self.db.execute("SELECT id, task_id, name, phone, text FROM outbox WHERE status=? ORDER BY id",
+                               (status,)).fetchall()
+
+    def set_outbox(self, oid, status):
+        self.db.execute("UPDATE outbox SET status=? WHERE id=?", (status, oid))
+        self.db.commit()

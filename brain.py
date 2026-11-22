@@ -3,10 +3,13 @@
 Three options, chosen in config.json:
   ollama -> free, runs on your own PC (default)
   claude -> paid per use, smarter, needs ANTHROPIC_API_KEY
+  online -> any OpenAI-style service, e.g. Groq or Google Gemini (both have free tiers),
+            needs ONLINE_AI_KEY. Use this when the PC is too small for local models.
   demo   -> no AI, canned answers, only for testing the wiring
 """
 import json
 import os
+import urllib.error
 import urllib.request
 
 
@@ -15,36 +18,54 @@ class Brain:
         self.kind = config.get("brain", "ollama")
         self.config = config
 
-    def think(self, system, prompt, max_tokens=700):
+    def think(self, system, prompt, max_tokens=700, images=None):
+        """images: optional list of (mime, base64) pictures the AI should look at."""
+        images = images or []
         if self.kind == "ollama":
-            return self._ollama(system, prompt)
+            return self._ollama(system, prompt, images)
         if self.kind == "claude":
-            return self._claude(system, prompt, max_tokens)
+            return self._claude(system, prompt, max_tokens, images)
+        if self.kind == "online":
+            return self._online(system, prompt, max_tokens, images)
         return self._demo(system, prompt)
 
     # ---- free, local -------------------------------------------------
-    def _ollama(self, system, prompt):
+    def _ollama(self, system, prompt, images=()):
         url = self.config.get("ollama_url", "http://localhost:11434") + "/api/chat"
-        body = {
-            "model": self.config.get("ollama_model", "qwen2.5:7b"),
-            "stream": False,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            "options": {"temperature": 0.3, "num_ctx": int(self.config.get("ollama_context", 16384))},
-        }
-        try:
-            data = _post_json(url, body, {}, timeout=600)
-        except Exception as e:
-            raise RuntimeError(
-                "Could not reach Ollama. Is the Ollama app running, and did you run "
-                f"'ollama pull {body['model']}'? Details: {e}"
-            )
-        return data["message"]["content"].strip()
+        model = self.config.get("ollama_model", "qwen2.5:7b")
+        ctx = int(self.config.get("ollama_context", 8192))
+        last = None
+        # If the PC runs short of memory Ollama answers "500"; retry with a smaller memory window.
+        for size in sorted({ctx, min(ctx, 4096), 2048}, reverse=True):
+            body = {
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt, **({"images": [b for _, b in images]} if images else {})},
+                ],
+                "options": {"temperature": 0.3, "num_ctx": size},
+            }
+            try:
+                data = _post_json(url, body, {}, timeout=900)
+                if size != ctx:
+                    self.config["ollama_context"] = size  # remember what works on this PC
+                return data["message"]["content"].strip()
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode("utf-8", "replace")[:300]
+                last = f"Ollama error {e.code}: {detail}"
+                if "not found" in detail.lower():
+                    break
+            except Exception as e:
+                last = str(e)
+                break
+        raise RuntimeError(
+            f"Ollama could not answer. Check the Ollama app is running and run 'ollama pull {model}'. "
+            f"Details: {last}"
+        )
 
     # ---- paid, hosted ------------------------------------------------
-    def _claude(self, system, prompt, max_tokens):
+    def _claude(self, system, prompt, max_tokens, images=()):
         key = os.environ.get("ANTHROPIC_API_KEY")
         if not key:
             raise RuntimeError("Set the ANTHROPIC_API_KEY environment variable to use Claude.")
@@ -52,11 +73,31 @@ class Brain:
             "model": self.config.get("claude_model", "claude-sonnet-5-5"),
             "max_tokens": max_tokens,
             "system": system,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": m, "data": b}} for m, b in images
+            ] + [{"type": "text", "text": prompt}]}],
         }
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
         data = _post_json("https://api.anthropic.com/v1/messages", body, headers, timeout=120)
         return "".join(b.get("text", "") for b in data["content"]).strip()
+
+    # ---- hosted, OpenAI-style API (Groq, Gemini, OpenRouter...): some have free tiers ----
+    def _online(self, system, prompt, max_tokens, images=()):
+        env = self.config.get("online_key_env", "ONLINE_AI_KEY")
+        key = os.environ.get(env)
+        if not key:
+            raise RuntimeError(f"Set the {env} environment variable to your AI service key.")
+        base = self.config.get("online_url", "https://api.groq.com/openai/v1").rstrip("/")
+        body = {
+            "model": self.config.get("online_model", "llama-3.3-70b-versatile"),
+            "max_tokens": max_tokens,
+            "temperature": 0.3,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:{m};base64,{b}"}} for m, b in images
+            ] + [{"type": "text", "text": prompt}] if images else prompt}],
+        }
+        data = _post_json(base + "/chat/completions", body, {"Authorization": f"Bearer {key}"}, timeout=120)
+        return data["choices"][0]["message"]["content"].strip()
 
     # ---- offline test mode -------------------------------------------
     def _demo(self, system, prompt):
