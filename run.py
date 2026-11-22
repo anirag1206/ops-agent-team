@@ -110,8 +110,21 @@ def main():
             print(f"{k}: {plan.get(k)}")
     elif mode == "whatsmcp-groups":
         import whatsmcp_bridge
-        for g in whatsmcp_bridge.list_groups(config["whatsmcp"]["account_id"]):
-            print(g.get("name") or g.get("chat"))
+        acc = config["whatsmcp"]["account_id"]
+        groups = whatsmcp_bridge.list_groups(acc)
+        print(f"{len(groups)} groups (most recently active first). Copy the name or the id into routes.\n")
+        for g in groups:
+            line = f"{g.get('name') or '(no name)'}   |   {g['chat']}   |   last active {str(g.get('last_message_at', ''))[:10]}"
+            if not g.get("name"):  # show who writes there, so you can recognise the group
+                try:
+                    from urllib.parse import quote
+                    msgs = whatsmcp_bridge._call("GET", f"/accounts/{acc}/chats/{quote(g['chat'], safe='')}?limit=5").get("messages", [])
+                    who = sorted({m.get("sender_name") for m in msgs if m.get("sender_name")})[:4]
+                    last = next((m.get("text") for m in reversed(msgs) if m.get("text")), "")
+                    line += f"\n      people: {', '.join(who) or '-'}   last message: {last[:60]}"
+                except Exception:
+                    pass
+            print(line)
     elif mode == "staff-from-group":
         # python run.py staff-from-group "Group name" [role]
         import whatsmcp_bridge

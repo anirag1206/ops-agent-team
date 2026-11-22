@@ -95,7 +95,7 @@ def serve(team, config):
         wanted = config["whatsapp"].get("allowed_groups") or []
         if wanted:
             for g in list_groups(wm.get("account_id")):
-                if any(w.lower() in str(g.get("name", "")).lower() for w in wanted):
+                if any(group_matches(w, g) for w in wanted):
                     groups.add(g["chat"])
                     print(f"Group: {g.get('name')} (team answers messages starting with "
                           f"'{config['whatsapp'].get('group_trigger', 'team')}')")
@@ -233,15 +233,96 @@ def _signature_ok(raw, header, secret):
 
 
 # ---------------- building the staff list from a WhatsApp group ----------------
-def list_groups(account_id):
+MCP_URL = "https://api.whatsmcp.com/mcp"
+HERE = os.path.dirname(os.path.abspath(__file__))
+NAMES_FILE = os.path.join(HERE, "group_names.local.json")  # your own labels: {"1203...@g.us": "QA Team"}
+
+
+def _mcp(method, params, session=None, rid=1):
+    """One call to WhatsMCP's MCP endpoint (the REST API has no group names)."""
+    key = os.environ.get("WAMCP_KEY")
+    body = {"jsonrpc": "2.0", "method": method, "params": params}
+    if rid is not None:
+        body["id"] = rid
+    headers = {"X-API-Key": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json",
+               "Accept": "application/json, text/event-stream", "User-Agent": "ops-agent-team"}
+    if session:
+        headers["Mcp-Session-Id"] = session
+    req = urllib.request.Request(MCP_URL, data=json.dumps(body).encode(), headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=60) as r:
+        session = r.headers.get("Mcp-Session-Id") or session
+        raw = r.read().decode("utf-8", "replace")
+    if raw.lstrip().startswith("{"):
+        return json.loads(raw), session
+    for line in raw.splitlines():  # event-stream answer
+        if line.startswith("data:") and '"id"' in line:
+            return json.loads(line[5:]), session
+    return {}, session
+
+
+def _find_groups(obj, out):
+    """Pick (jid, name) pairs out of whatever shape the answer has."""
+    if isinstance(obj, str) and obj.strip()[:1] in "[{":
+        try:
+            obj = json.loads(obj)
+        except ValueError:
+            return
+    if isinstance(obj, dict):
+        jid = next((str(v) for v in obj.values() if isinstance(v, str) and v.endswith("@g.us")), None)
+        name = next((obj[k] for k in ("name", "subject", "title", "group_name", "display_name")
+                     if isinstance(obj.get(k), str) and obj.get(k)), None)
+        if jid and name:
+            out[jid] = name
+        for v in obj.values():
+            _find_groups(v, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _find_groups(v, out)
+
+
+def group_names(account_id):
+    """{group id: name} from WhatsMCP (MCP wa_list_groups) plus your own labels file."""
+    names = {}
+    try:
+        init, session = _mcp("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                            "clientInfo": {"name": "ops-agent-team", "version": "1"}})
+        try:
+            _mcp("notifications/initialized", {}, session, rid=None)
+        except Exception:
+            pass
+        res, _ = _mcp("tools/call", {"name": "wa_list_groups", "arguments": {"account_id": account_id}}, session, 2)
+        _find_groups(res.get("result", {}), names)
+        if not names and os.environ.get("DEBUG_WAMCP"):
+            print("MCP answer:", json.dumps(res)[:1500])
+    except Exception as e:
+        print("Could not read group names from WhatsMCP:", e)
+    if os.path.exists(NAMES_FILE):
+        with open(NAMES_FILE, encoding="utf-8-sig") as f:
+            names.update(json.load(f))
+    return names
+
+
+def list_groups(account_id, with_names=True):
     chats = _call("GET", f"/accounts/{account_id}/chats?limit=200").get("chats", [])
-    return [c for c in chats if "@g.us" in str(c.get("chat", ""))]
+    groups = [c for c in chats if "@g.us" in str(c.get("chat", ""))]
+    if with_names and any(not g.get("name") for g in groups):
+        names = group_names(account_id)
+        for g in groups:
+            g["name"] = g.get("name") or names.get(g["chat"], "")
+    return groups
+
+
+def group_matches(pattern, g):
+    """A route or allowed_groups entry matches a group by part of its name, or by its id."""
+    p = str(pattern).strip().lower()
+    jid = str(g.get("chat", "")).lower()
+    return bool(p) and (p == jid or p == jid.split("@")[0] or p in str(g.get("name", "")).lower())
 
 
 def group_senders(account_id, name_part, own_phone=""):
     """Everyone who has written in the group (WhatsMCP has no member list, only messages)."""
     from urllib.parse import quote
-    groups = [g for g in list_groups(account_id) if name_part.lower() in str(g.get("name", "")).lower()]
+    groups = [g for g in list_groups(account_id) if group_matches(name_part, g)]
     if not groups:
         raise RuntimeError(f"No WhatsApp group with '{name_part}' in its name. Run: python run.py whatsmcp-groups")
     g = groups[0]

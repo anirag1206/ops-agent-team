@@ -113,7 +113,7 @@ Add a `routes` list to `config.local.json`. Each line says: messages from this c
 ]
 ```
 
-- **chat:** part of a WhatsApp group name (see `python run.py whatsmcp-groups`), or a phone number with country code.
+- **chat:** part of a WhatsApp group name, or the group's id (both shown by `python run.py whatsmcp-groups`), or a phone number with country code. If a group shows `(no name)`, use its id, or give it a label in `group_names.local.json`: `{"120363...@g.us": "QA Team"}`.
 - **bot:** `ceo` (default), a department head (`cfo`, `coo`, `qa`, `eng`, `scm`, `fd`, `ra`, `bd`, `dom`, `hr`, `cos`), `team` (full leadership discussion, slower and costs more) or `ignore` (never read).
 - **brain:** optional. `grok` (xAI) or `claude`. Leave it out to use the middleman's normal brain.
 - **everyone:** optional, groups only. `true` lets anyone in that group ask; otherwise only people in `allowed_numbers`.

@@ -276,25 +276,25 @@ class Middleman:
         own = wa._own_phone(wm.get("account_id"))
         groups = set()
         wanted = self.config["whatsapp"].get("allowed_groups") or []
-        group_routes = [r for r in self.routes_cfg if not str(r.get("chat", "")).isdigit()]
+        is_phone = lambda c: str(c).isdigit() and len(str(c)) <= 15  # longer digit strings are group ids
+        group_routes = [r for r in self.routes_cfg if not is_phone(r.get("chat", ""))]
         for r in self.routes_cfg:
-            if str(r.get("chat", "")).isdigit():
+            if is_phone(r.get("chat", "")):
                 phone = str(r["chat"])
                 self.route_of[phone] = r
                 if r.get("bot") != "ignore":
                     self.people.add(phone)
         if wanted or group_routes:
             for g in wa.list_groups(wm.get("account_id")):
-                name = str(g.get("name", "")).lower()
-                r = next((r for r in group_routes if str(r["chat"]).lower() in name), None)
+                r = next((r for r in group_routes if wa.group_matches(r["chat"], g)), None)
                 if r:
                     self.route_of[g["chat"]] = r
                     if r.get("bot") == "ignore":
                         continue
-                elif not any(w.lower() in name for w in wanted):
+                elif not any(wa.group_matches(w, g) for w in wanted):
                     continue
                 groups.add(g["chat"])
-                print(f"Group: {g.get('name')}  ->  {(r or {}).get('bot', 'ceo')}")
+                print(f"Group: {g.get('name') or g['chat']}  ->  {(r or {}).get('bot', 'ceo')}")
         for phone, r in self.route_of.items():
             if phone.isdigit():
                 print(f"Person: {self.names.get(phone, phone)}  ->  {r.get('bot', 'ceo')}")
