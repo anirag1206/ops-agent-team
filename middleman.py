@@ -105,11 +105,6 @@ class Middleman:
             if (own and wa._number(chat) == own) or chat in self.self_chats:
                 sender = own or sender  # your "Message yourself" chat: your control channel
             elif outbound:
-                if wa._number(chat) not in self.people and chat not in self.hinted:
-                    self.hinted.add(chat)
-                    if os.environ.get("DEBUG_WAMCP"):
-                        print(f"(Ignored your message to {chat}. If this is your 'Message yourself' chat, add "
-                              f"\"self_chat\": \"{chat}\" to the middleman block in config.local.json.)")
                 return  # your own messages to other people
         everyone = route.get("everyone", self.mm.get("group_everyone", False))
         if sender not in self.people and not (is_group and everyone):
@@ -360,7 +355,11 @@ class Middleman:
             try:
                 while True:
                     page = wa._call("GET", f"/messages?after_cursor={cursor}&limit=100")
+                    skipped = 0
                     for m in page.get("messages", []):
+                        if not self._listed(m, groups, own):
+                            skipped += 1  # not on your lists: dropped at once, never printed, stored or sent
+                            continue
                         if os.environ.get("DEBUG_WAMCP"):
                             print("seen:", {k: m.get(k) for k in ("direction", "peer", "chat", "kind")},
                                   (m.get("text") or "")[:40])
@@ -368,6 +367,8 @@ class Middleman:
                             continue
                         seen.append(m.get("message_id"))
                         self.on_message(m, groups, own)
+                    if skipped and os.environ.get("DEBUG_WAMCP"):
+                        print(f"skipped {skipped} message(s) from unlisted chats")
                     cursor = page.get("next_cursor") or cursor
                     if not page.get("has_more"):
                         break
@@ -376,6 +377,21 @@ class Middleman:
             except Exception as e:
                 print("WhatsMCP check failed:", e)
             time.sleep(every)
+
+    def _listed(self, m, groups, own):
+        """True only for your listed groups and people, your self-chat, or a '#selfchat' test message."""
+        chat = str(m.get("chat") or "")
+        if "@g.us" in chat:
+            return chat in groups
+        num = wa._number(chat)
+        if chat in self.self_chats or (own and num == own):
+            return True
+        outbound = str(m.get("direction", "inbound")).lower() not in ("in", "inbound", "incoming")
+        if num in self.people and not outbound:  # a listed person writing to you
+            return True
+        if outbound and str(m.get("text") or "").strip().lower().startswith("#selfchat"):
+            print(f'Your self-chat id is {chat}. Put "self_chat": "{chat}" in the middleman block of config.local.json.')
+        return False
 
     def _latest_cursor(self):
         """First start: jump to the newest message so old chats are not answered."""
