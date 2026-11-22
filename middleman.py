@@ -145,6 +145,24 @@ class Middleman:
             return self.team.staff.owner_command(low, text)
         return None
 
+    def _auto_send(self, rows):
+        """staff_messages "auto": Grok's messages go straight to staff (listed contacts only),
+        within a daily cap, and you get a copy in your self-chat."""
+        cap = int(self.mm.get("max_staff_messages_per_day", 60))
+        if self.stats.get("staff_day") != datetime.now().date():
+            self.stats.update(staff_day=datetime.now().date(), staff_sent=0)
+        if self.stats["staff_sent"] + len(rows) > cap:
+            for o in self.owner[:1]:
+                wa.send(self.config, o, f"Today's limit of {cap} staff messages is reached, so these wait for you:\n"
+                        + self.team.staff.pending_text())
+            return
+        result = self.team.staff.send([r[0] for r in rows])
+        self.stats["staff_sent"] += len(rows)
+        print(result)
+        copy = "\n\n".join(f"To {r[2]}:\n{r[4]}" for r in rows)
+        for o in self.owner[:1]:
+            wa.send(self.config, o, f"Grok sent:\n{copy}\n\n({result})")
+
     def _attachments(self, p):
         """Download WhatsApp pictures and files of one bundle: (pictures for Grok, text from files)."""
         images, notes = list(p.get("images", [])), []
@@ -216,6 +234,9 @@ class Middleman:
         tasks = "\n".join(f"#{t[0]} {self.team.agents.get(t[1], {}).get('title', t[1])}: {t[2]} (due {t[3]})"
                           for t in self.team.memory.open_tasks()[:15]) or "none"
         facts = "\n".join("- " + f for f in self.team.memory.facts()) or "- none yet"
+        send_rule = ("It is sent straight away and the owner gets a copy. Be polite and specific; never message "
+                     "customers or outside parties." if self.team.staff and self.team.staff.mode == "auto" else
+                     "The owner approves each message before it is sent, so never say it was already sent.")
         people = "\n".join(f"- {p['name']}: {self.team.agents.get(p.get('role'), {}).get('title', p.get('role') or 'role not set')}"
                            for p in (self.team.staff.people if self.team.staff else [])[:80]) or "- none listed yet"
         return (
@@ -229,8 +250,8 @@ class Middleman:
             "To give someone a task, add a line: ACTION: <dept id> | <task> | <due>  "
             f"(dept ids: {', '.join(self.team.agents)}).\n"
             "To message one employee directly on WhatsApp (task, reminder, question), add a line: "
-            "MESSAGE <name>: <text>. Use only names from the staff list. The owner approves each message "
-            "before it is sent, so never say it was already sent.\n\n"
+            "MESSAGE <name>: <text>. Use only names from the staff list. "
+            f"{send_rule}\n\n"
             f"Staff you can message:\n{people}\n\n"
             f"Company knowledge:\n{brief}\n\nWhat the owner told you to remember:\n{facts}\n\nOpen tasks:\n{tasks}"
         )
@@ -281,9 +302,9 @@ class Middleman:
                 lines.append(line)
         text = self.team._clean("\n".join(lines))
         if self.team.staff:
-            sent = self.team.staff.auto_send_if_allowed() or ""
-            if sent:
-                print(sent)
+            rows = self.team.memory.outbox("pending")
+            if self.team.staff.mode == "auto" and rows:
+                self._auto_send(rows)
             elif len(self.team.memory.outbox("pending")) > before:
                 for o in self.owner:  # ask the owner, privately, before anything goes to staff
                     wa.send(self.config, o, self.team.staff.pending_text())
