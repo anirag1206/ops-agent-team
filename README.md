@@ -136,6 +136,11 @@ The middleman stays a simple messenger: it reads, passes to Grok, and posts Grok
 
 - **Grok messages employees:** everyone in `contacts.local.json` is listed in Grok's briefing. Grok can write `MESSAGE <name>: <text>`; the middleman turns that into a draft and asks you privately on WhatsApp. Nothing reaches the employee until you reply `send all` or `send 3` (`cancel 3` drops it). With `"staff_messages": "auto"` in config.local.json, Grok's messages go straight to the employee and you get a copy in your self-chat; `max_staff_messages_per_day` (default 60) caps them. Grok can only message people in contacts.local.json, never groups or customers. Fill the contacts quickly with `python run.py staff-from-group all`, which collects everyone who has written in your internal groups (routes with `"everyone": true`); then open `contacts.local.json` and set each person's role.
 
+- **Standing rules:** put your rules, open tasks and way of working in `grok_rules.local.md` (private, never uploaded). Grok reads it with every message.
+- **Client groups:** list parts of their names in `whatsapp.read_only_groups`. The middleman reads them (they show in the evening report) but never posts there.
+- **Schedule:** `middleman.schedule` runs jobs at set times, e.g. `{"time": "10:00", "to": ["DRA Daily Work"], "task": "Post today's coded task list"}` for a group, or `"to": "owner"` for a report to your self-chat. Each job is one Grok call per group and counts toward the caps.
+- **Owner notices** (drafts, copies of messages Grok sent, limits, reports) go only to the linked number's own chat, never to other allowed numbers.
+
 ## Part 3: Knowledge base, Graphify and GitHub
 
 - **lucent-kb**: every agent automatically reads the company snapshot, `decisions.md`, its own `departments/*.md` brief and its `data/*.md` snapshots. The CEO, Chief of Staff and HR also read `people.md`. Which files each agent reads is listed in `team.json` (`kb_brief`, `kb_data`).

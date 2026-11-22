@@ -22,7 +22,7 @@ import re
 import threading
 import time
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import quote
 
@@ -82,6 +82,12 @@ class Middleman:
         sc = self.mm.get("self_chat") or []
         self.self_chats = set([sc] if isinstance(sc, str) else sc)
         self.hinted = set()
+        self.read_only = set()     # client groups: read, never post
+        self.group_names = {}      # group id -> name
+        self.daylog = defaultdict(list)  # today's messages per listed chat, for chases and the evening report
+        self.day = datetime.now().date()
+        here = os.path.dirname(os.path.abspath(__file__))
+        self.rules_file = os.path.join(here, "grok_rules.local.md")
 
     # ---------- 1-3: receive, filter, batch ----------
     def on_message(self, m, groups, own):
@@ -122,7 +128,13 @@ class Middleman:
             label = "[picture]" if kind == "image" else f"[file: {att.get('file_name') or 'document'}]"
             text = f"{label} {text}".strip()
         with self.lock:
+            if datetime.now().date() != self.day:
+                self.day, self.daylog = datetime.now().date(), defaultdict(list)
+            if len(self.daylog[key]) < 300:
+                self.daylog[key].append(f"{datetime.now():%H:%M} {who}: {text[:300]}")
             self.history[key].append(f"{who}: {text}")
+            if key in self.read_only:
+                return  # client group: kept for the evening report, never answered
             if not has_media and not worth_forwarding(text, kind):
                 self.stats["dropped"] += 1
                 return
@@ -145,6 +157,11 @@ class Middleman:
             return self.team.staff.owner_command(low, text)
         return None
 
+    def _notify(self, text):
+        """Owner-only notices (drafts, copies, limits, reports) go ONLY to your own self-chat."""
+        if self.owner:
+            wa.send(self.config, self.owner[0], text)
+
     def _auto_send(self, rows):
         """staff_messages "auto": Grok's messages go straight to staff (listed contacts only),
         within a daily cap, and you get a copy in your self-chat."""
@@ -152,16 +169,14 @@ class Middleman:
         if self.stats.get("staff_day") != datetime.now().date():
             self.stats.update(staff_day=datetime.now().date(), staff_sent=0)
         if self.stats["staff_sent"] + len(rows) > cap:
-            for o in self.owner[:1]:
-                wa.send(self.config, o, f"Today's limit of {cap} staff messages is reached, so these wait for you:\n"
+            self._notify(f"Today's limit of {cap} staff messages is reached, so these wait for you:\n"
                         + self.team.staff.pending_text())
             return
         result = self.team.staff.send([r[0] for r in rows])
         self.stats["staff_sent"] += len(rows)
         print(result)
         copy = "\n\n".join(f"To {r[2]}:\n{r[4]}" for r in rows)
-        for o in self.owner[:1]:
-            wa.send(self.config, o, f"Grok sent:\n{copy}\n\n({result})")
+        self._notify(f"Grok sent:\n{copy}\n\n({result})")
 
     def _attachments(self, p):
         """Download WhatsApp pictures and files of one bundle: (pictures for Grok, text from files)."""
@@ -218,12 +233,19 @@ class Middleman:
             self.brains[name] = Brain(cfg)
         return self.brains[name]
 
+    def _rules(self):
+        """Your standing rules for Grok, from grok_rules.local.md (private, stays on your PC)."""
+        if os.path.exists(self.rules_file):
+            with open(self.rules_file, encoding="utf-8-sig") as f:
+                return "\n\nOWNER'S STANDING RULES (always follow):\n" + f.read()[:12000]
+        return ""
+
     def _briefing(self, bot="ceo"):
         if bot != "ceo" and bot in self.team.agents:
             # a department head: its own brief and data from lucent-kb, plus WhatsApp rules
             return (self.team._system(self.team.agents[bot]) +
                     "\nYou are answering on WhatsApp: reply short (max 6 lines), in the language used. "
-                    "If no answer is needed, reply exactly NO_REPLY.")
+                    "If no answer is needed, reply exactly NO_REPLY." + self._rules())
         ceo = self.team.agents["ceo"]
         kb = self.team.kb
         brief = ""
@@ -254,14 +276,14 @@ class Middleman:
             f"{send_rule}\n\n"
             f"Staff you can message:\n{people}\n\n"
             f"Company knowledge:\n{brief}\n\nWhat the owner told you to remember:\n{facts}\n\nOpen tasks:\n{tasks}"
+            + self._rules()
         )
 
     def ask_ceo(self, p):
         if not self._budget_ok():
             if not self.cap_warned:
                 self.cap_warned = True
-                for o in self.owner:
-                    wa.send(self.config, o, "Middleman: today's Grok limit is reached, so I'm holding messages. "
+                self._notify("Middleman: today's Grok limit is reached, so I'm holding messages. "
                                             "Raise max_ai_calls_per_day in config.local.json if needed.")
             print("Budget cap reached; skipped:", p["lines"][-1][:60])
             return
@@ -306,13 +328,14 @@ class Middleman:
             if self.team.staff.mode == "auto" and rows:
                 self._auto_send(rows)
             elif len(self.team.memory.outbox("pending")) > before:
-                for o in self.owner:  # ask the owner, privately, before anything goes to staff
-                    wa.send(self.config, o, self.team.staff.pending_text())
+                self._notify(self.team.staff.pending_text())
             if unknown:
-                for o in self.owner:
-                    wa.send(self.config, o, "Grok wanted to message " + ", ".join(unknown) +
+                self._notify("Grok wanted to message " + ", ".join(unknown) +
                             " but they are not in contacts.local.json.")
         if not text.strip():
+            return
+        if p["reply_to"] in self.read_only:
+            print("Not posting in a read-only group.")
             return
         wa.send(self.config, p["reply_to"], text)
         self.history[p["reply_to"]].append(f"CEO: {text}")
@@ -325,7 +348,7 @@ class Middleman:
         wm = self.config["whatsmcp"]
         own = wa._own_phone(wm.get("account_id"))
         if own:  # the linked number is yours: your self-chat is the control channel
-            self.owner.append(own) if own not in self.owner else None
+            self.owner = [own]  # only YOUR number is the owner; other allowed numbers are just people
             self.people.add(own)
         groups = set()
         wanted = self.config["whatsapp"].get("allowed_groups") or []
@@ -338,7 +361,11 @@ class Middleman:
                 if r.get("bot") != "ignore":
                     self.people.add(phone)
         if wanted or group_routes:
+            ro = self.config["whatsapp"].get("read_only_groups") or []
             for g in wa.list_groups(wm.get("account_id")):
+                self.group_names[g["chat"]] = g.get("name") or g["chat"]
+                if any(wa.group_matches(x, g) for x in ro):
+                    self.read_only.add(g["chat"])
                 r = next((r for r in group_routes if wa.group_matches(r["chat"], g)), None)
                 if r:
                     self.route_of[g["chat"]] = r
@@ -347,11 +374,16 @@ class Middleman:
                 elif not any(wa.group_matches(w, g) for w in wanted):
                     continue
                 groups.add(g["chat"])
-                print(f"Group: {g.get('name') or g['chat']}  ->  {(r or {}).get('bot', 'ceo')}")
+                print(f"Group: {g.get('name') or g['chat']}  ->  "
+                      f"{'READ ONLY' if g['chat'] in self.read_only else (r or {}).get('bot', 'ceo')}")
         for phone, r in self.route_of.items():
             if phone.isdigit():
                 print(f"Person: {self.names.get(phone, phone)}  ->  {r.get('bot', 'ceo')}")
+        self.groups = groups
         threading.Thread(target=self.flush_loop, daemon=True).start()
+        threading.Thread(target=self.schedule_loop, daemon=True).start()
+        if os.path.exists(self.rules_file):
+            print("Standing rules loaded from grok_rules.local.md")
         if self.config.get("email", {}).get("enabled"):
             from email_reader import EmailReader
             threading.Thread(target=EmailReader(self.config, self).loop, daemon=True).start()
@@ -361,6 +393,55 @@ class Middleman:
             self._webhook(groups, own, int(self.config["whatsapp"].get("port", 8000)))
         else:
             self._poll(groups, own, int(self.mm.get("poll_seconds", wm.get("poll_seconds", 30))))
+
+    # ---------- scheduled work: daily posts, chases, evening report ----------
+    def schedule_loop(self):
+        """middleman.schedule: [{"time": "10:00", "to": ["DRA Daily Work"] or "owner", "task": "..."}]"""
+        done = set()
+        while True:
+            now = datetime.now()
+            for i, job in enumerate(self.mm.get("schedule", [])):
+                try:
+                    hh, mm_ = [int(x) for x in str(job["time"]).split(":")]
+                except (KeyError, ValueError):
+                    continue
+                due = now.replace(hour=hh, minute=mm_, second=0, microsecond=0)
+                tag = (i, now.date())
+                if tag in done or not (due <= now < due + timedelta(minutes=10)):
+                    continue
+                done.add(tag)
+                try:
+                    self.run_job(job)
+                except Exception as e:
+                    print("Scheduled job failed:", e)
+            time.sleep(30)
+
+    def run_job(self, job):
+        to = job.get("to", "owner")
+        if to == "owner":
+            logs = []
+            for chat, lines in self.daylog.items():
+                name = self.group_names.get(chat) or self.names.get(chat) or ("your self-chat" if chat in self.owner else chat)
+                logs.append(f"--- {name}{' (client group, read only)' if chat in self.read_only else ''} ---\n"
+                            + "\n".join(lines)[-1500:])
+            sent = self.team.memory.outbox("sent")[-40:]
+            body = ("Today's messages in your groups:\n" + ("\n".join(logs)[-14000:] or "(none)") +
+                    "\n\nStaff messages sent (latest):\n" + ("\n".join(f"to {r[2]}: {r[4][:150]}" for r in sent) or "(none)"))
+            target = self.owner[0] if self.owner else None
+            if target:
+                print(f"Scheduled: {job.get('task', '')[:50]} -> owner")
+                self.ask_ceo({"reply_to": target, "group": False, "route": {}, "media": [],
+                              "header": f"Scheduled task ({job['time']}): {job.get('task', '')}", "lines": [body]})
+            return
+        for chat in list(self.groups):
+            g = {"chat": chat, "name": self.group_names.get(chat, "")}
+            if chat in self.read_only or not any(wa.group_matches(x, g) for x in to):
+                continue
+            print(f"Scheduled: {job.get('task', '')[:50]} -> {g['name'] or chat}")
+            log = "\n".join(self.daylog.get(chat, [])) or "(no messages yet today)"
+            self.ask_ceo({"reply_to": chat, "group": True, "route": self.route_of.get(chat, {}), "media": [],
+                          "header": f"Scheduled task ({job['time']}) for group {g['name']}: {job.get('task', '')}",
+                          "lines": [f"Today's messages in this group:\n{log[-4000:]}"]})
 
     def _poll(self, groups, own, every):
         """ONE WhatsMCP call per check: the newest messages from all chats, filtered here for free."""
